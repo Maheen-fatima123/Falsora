@@ -83,6 +83,72 @@ class TestNoImportSideEffects:
         assert not top_level, "torch must only be imported inside functions"
 
 
+# Video counts verified by directly counting files on disk (audit, M0).
+# These are facts about the datasets, not preferences — if a count changes it
+# means the data on disk changed, and the frame budget must be re-tuned.
+VIDEO_COUNTS = {
+    "FaceForensics++_C23/original": 1000,
+    "FaceForensics++_C23/Deepfakes": 1000,
+    "FaceForensics++_C23/Face2Face": 1000,
+    "FaceForensics++_C23/FaceSwap": 1000,
+    "FaceForensics++_C23/FaceShifter": 1000,
+    "FaceForensics++_C23/NeuralTextures": 1000,
+    "FaceForensics++_C23/DeepFakeDetection": 1000,
+    "FF++/real": 200,
+    "Celeb DF/Celeb-real": 590,
+    "Celeb DF/YouTube-real": 300,
+    "Celeb DF/Celeb-synthesis": 5639,
+}
+
+
+def _crop_totals(data: DataConfig, sources: tuple[str, ...]) -> dict[str, int]:
+    totals = {"real": 0, "fake": 0}
+    for source in sources:
+        label = data.SOURCE_LABELS[source]
+        totals[label] += VIDEO_COUNTS[source] * data.frames_for(source)
+    return totals
+
+
+class TestDatasetRoles:
+    """Celeb-DF is held out of training. This is a protocol decision that the
+    test suite must enforce, because a single edit to ``DOMAIN_ROLES`` would
+    silently turn an honest cross-dataset benchmark into a self-graded exam.
+
+    The reason it is held out: Celeb-DF's official test list is not
+    identity-disjoint from the rest of the dataset — 56 of its 59 celebrity
+    identities appear on both sides. Training on the remainder and reporting
+    on the test list would measure face memorisation, not deepfake detection.
+    """
+
+    def test_celebdf_is_never_trained_on(self) -> None:
+        data = DataConfig()
+        assert data.DOMAIN_ROLES["celebdf"] == "heldout_test"
+        assert not [s for s in data.training_sources() if s.startswith("Celeb DF")]
+
+    def test_heldout_sources_are_exactly_celebdf(self) -> None:
+        data = DataConfig()
+        assert set(data.heldout_sources()) == {
+            "Celeb DF/Celeb-real",
+            "Celeb DF/YouTube-real",
+            "Celeb DF/Celeb-synthesis",
+        }
+
+    def test_training_pool_is_ffpp_and_dfd(self) -> None:
+        data = DataConfig()
+        assert {data.domain_of[s] for s in data.training_sources()} == {"ffpp", "dfd"}
+
+    def test_every_domain_has_a_role(self) -> None:
+        data = DataConfig()
+        missing = set(data.domain_of.values()) - set(data.DOMAIN_ROLES)
+        assert not missing, f"Domains without a role: {missing}"
+
+    def test_heldout_set_contains_both_classes(self) -> None:
+        """A benchmark of only fakes would report a meaningless number."""
+        data = DataConfig()
+        labels = {data.SOURCE_LABELS[s] for s in data.heldout_sources()}
+        assert labels == {"real", "fake"}
+
+
 class TestFrameBudget:
     """The frame budget is a correctness property, not a preference."""
 
@@ -108,32 +174,46 @@ class TestFrameBudget:
         assert data.SOURCE_LABELS["FF++/real"] == "real"
         assert data.domain_of["FF++/real"] == "dfd"
 
-    def test_class_balance_is_within_tolerance(self) -> None:
-        """Verified video counts x frame budget must give ~1:1 real:fake."""
-        video_counts = {
-            "FaceForensics++_C23/original": 1000,
-            "FaceForensics++_C23/Deepfakes": 1000,
-            "FaceForensics++_C23/Face2Face": 1000,
-            "FaceForensics++_C23/FaceSwap": 1000,
-            "FaceForensics++_C23/FaceShifter": 1000,
-            "FaceForensics++_C23/NeuralTextures": 1000,
-            "FaceForensics++_C23/DeepFakeDetection": 1000,
-            "FF++/real": 200,
-            "Celeb DF/Celeb-real": 590,
-            "Celeb DF/YouTube-real": 300,
-            "Celeb DF/Celeb-synthesis": 5639,
-        }
+    def test_training_pool_class_balance(self) -> None:
+        """Balance is only meaningful over data we actually train on.
+
+        Held-out Celeb-DF is 6:1 fake by construction and is irrelevant here —
+        including it in this sum was the bug this test previously had.
+        """
         data = DataConfig()
-        totals = {"real": 0, "fake": 0}
-        for source, n_videos in video_counts.items():
-            label = data.SOURCE_LABELS[source]
-            totals[label] += n_videos * data.frames_for(source)
+        totals = _crop_totals(data, data.training_sources())
 
         ratio = totals["fake"] / totals["real"]
         assert 0.85 <= ratio <= 1.20, (
-            f"Class imbalance {ratio:.2f}:1 fake:real exceeds tolerance. "
+            f"Training-pool imbalance {ratio:.2f}:1 fake:real exceeds tolerance. "
             f"real={totals['real']:,} fake={totals['fake']:,}. "
             "Re-tune DataConfig.frames_per_video."
+        )
+
+    @pytest.mark.parametrize("domain", ["ffpp", "dfd"])
+    def test_each_training_domain_is_balanced(self, domain: str) -> None:
+        """Global balance can hide a domain that is 90% fake, which teaches the
+        model to use domain artefacts as a shortcut for the label."""
+        data = DataConfig()
+        sources = tuple(
+            s for s in data.training_sources() if data.domain_of[s] == domain
+        )
+        totals = _crop_totals(data, sources)
+
+        ratio = totals["fake"] / totals["real"]
+        assert 0.85 <= ratio <= 1.20, (
+            f"Domain '{domain}' is {ratio:.2f}:1 fake:real. "
+            f"real={totals['real']:,} fake={totals['fake']:,}."
+        )
+
+    def test_training_pool_size_is_tractable(self) -> None:
+        """A budget that quietly grows past ~120k crops no longer fits the
+        overnight CPU extraction window the compute plan assumes."""
+        data = DataConfig()
+        totals = _crop_totals(data, data.training_sources())
+        total = totals["real"] + totals["fake"]
+        assert 60_000 <= total <= 120_000, (
+            f"Training pool is {total:,} crops; the compute plan assumes ~80k."
         )
 
     def test_split_ratios_sum_to_one(self) -> None:

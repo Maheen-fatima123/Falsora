@@ -186,15 +186,29 @@ The scope commits to detecting *both* AI face forgery *and* classical tampering 
 
 ### 3.4 The split protocol (the part that must not be got wrong)
 
-- **FF++ C23:** split by the *original* video id. A manipulated file `TARGET_SOURCE.mp4` inherits the split of `TARGET`. Both identities in a pair must sit in the same split. I will use the official FaceForensics++ `splits.json` (720/140/140) if we fetch it; otherwise a deterministic seeded split honouring the pairing constraint.
-- **DFD:** split by actor id (`01`–`28`). Actors are disjoint across train/val/test.
-- **Celeb-DF v2:** use the official `List_of_testing_videos.txt` for test — it is on disk. Split the remainder by identity (`idN`).
-- **Cross-dataset protocol:** train on FF++ only, test on Celeb-DF. This is the honest generalisation number and the one a panel will respect. Expect it to be substantially lower than in-domain AUC; that is normal and is worth stating openly in the report rather than hiding.
-- A `tests/test_splits.py` will **assert zero identity overlap** between splits and fail the build if it is ever violated.
+Every dataset here is assigned exactly one **role**, encoded in `DataConfig.DOMAIN_ROLES` and enforced by `tests/test_config.py::TestDatasetRoles`:
+
+| Domain | Role | Meaning |
+|---|---|---|
+| `ffpp` | `train_pool` | split into train / val / test by identity |
+| `dfd` | `train_pool` | split into train / val / test by actor |
+| `celebdf` | `heldout_test` | never seen during training, at all |
+
+**FF++ C23** splits by the *original* video id. A manipulated file `TARGET_SOURCE.mp4` inherits the split of `TARGET`, and both identities in a pair must land in the same split. A union-find pass over the 1,000 original ids and their 5,000 manipulation filenames confirms the graph is 500 clean components of size 2, which partitions exactly into 720/140/140 at our ratios.
+
+**DFD** splits by actor id (`01`–`28`). The connectivity here is coarse — the actor-pairing graph collapses to 3 components of 18, 5 and 5 actors, so the best achievable partition is 18/5/5 actors rather than a clean 72/14/14 percentage. That is a property of the data, not a bug, and the split code must not "fix" it by breaking a component apart.
+
+**Celeb-DF v2 is held out entirely.** This overturns the obvious approach and the reason is worth recording. Celeb-DF ships an official `List_of_testing_videos.txt`, and the natural move is to train on the remainder and evaluate on that list. Checking it first: **56 of the 59 celebrity identities appear on both sides.** Training on the remainder and reporting accuracy on the test list would largely measure whether the model has memorised those 56 faces. The number would be high and it would mean nothing.
+
+So Celeb-DF is not trained on in any form. It becomes a genuine unseen-dataset benchmark, which is also the standard "train on FF++, evaluate on Celeb-DF" protocol used throughout the deepfake detection literature — so our number will be directly comparable to published ones. Expect it to be substantially lower than in-domain AUC. That gap is the honest generalisation result and belongs in the report explicitly rather than buried.
+
+`tests/test_splits.py` will **assert zero identity overlap** between splits and fail the build if it is ever violated. `tests/test_config.py::TestDatasetRoles` separately pins the hold-out, so no future edit can quietly promote Celeb-DF into the training pool.
 
 ### 3.5 Frame budget
 
-Computed to give balanced classes globally *and within every domain*, so no re-weighting hacks are needed.
+Two budgets, because the two roles have different goals. The training pool is tuned for class balance; the held-out benchmark is tuned for uniform evaluation depth.
+
+**Training pool** — balanced globally *and within each domain*, so no class re-weighting is needed:
 
 | Source | Videos | Label | Frames/video | Crops |
 |---|---:|---|---:|---:|
@@ -206,12 +220,13 @@ Computed to give balanced classes globally *and within every domain*, so no re-w
 | FF++ NeuralTextures | 1,000 | FAKE | 7 | 7,000 |
 | DFD real (`FF++/real`) | 200 | REAL | 32 | 6,400 |
 | DFD fake | 1,000 | FAKE | 7 | 7,000 |
-| Celeb-real | 590 | REAL | 32 | 18,880 |
-| YouTube-real | 300 | REAL | 32 | 9,600 |
-| Celeb-synthesis | 5,639 | FAKE | 5 | 28,195 |
-| **Total** | **13,729** | | | **137,075** |
+| **Total** | **7,200** | | | **80,400** |
 
-Balance: 66,880 real vs 70,195 fake — **1 : 1.05** overall. FF++ core 1:1.09, DFD 1:1.09, Celeb-DF 1:0.99. Storage ≈ **3.4 GB** at 300 px JPEG q95.
+Balance: 38,400 real vs 42,000 fake — **1 : 1.09**, and 1:1.09 within both `ffpp` and `dfd` independently. Storage ≈ **2.0 GB** at 300 px JPEG q95.
+
+**Held-out benchmark (Celeb-DF).** Only the 518 videos on the official test list are extracted at all; the other ~6,000 would cost hours of CPU for data we have committed never to train on. Uniform 32 frames/video, ≈ 16,600 crops, ≈ 0.4 GB. Balance is irrelevant here because evaluation is by AUC, which is insensitive to class prior — but the metric is reported per class as well so a skewed accuracy figure can't hide behind it.
+
+Total extraction is therefore ~97k crops from 7,718 videos, down from the 137k/13,729 of the earlier all-in plan — roughly two hours of CPU saved and a materially more trustworthy evaluation.
 
 Frames are sampled **uniformly across each video's full duration**, not at a fixed stride from the start, so we capture varied pose and lighting rather than 20 near-identical frames from the opening seconds.
 
@@ -240,6 +255,29 @@ Each module is one branch, one pull request, one demonstrable artefact. Nothing 
 | **M10** | `feat/ai-m10-eval-report` | Final metrics, model card, scope-document corrections | all |
 
 Note that **M8 depends only on M0**. Module 6.16 has no ML dependency, so if training stalls or the GPU is unavailable, 6.16 can be built and merged in parallel. That is deliberate scheduling insurance.
+
+### 4.1 M1 as built — realised splits
+
+`python -m falsora_ai.data manifest` scans the datasets, assigns splits, verifies disjointness and writes `manifests/videos.csv` (committed, 1 MB, so the split is reviewable in a pull request). Re-running it produces a byte-identical file.
+
+| domain | split | videos | crops | identity groups |
+|---|---|---:|---:|---:|
+| ffpp | train | 4,320 | 48,240 | 360 |
+| ffpp | val | 840 | 9,380 | 70 |
+| ffpp | test | 840 | 9,380 | 70 |
+| dfd | train | 1,005 | 11,210 | 1 |
+| dfd | test | 195 | 2,190 | 2 |
+| celebdf | heldout | 518 | 16,576 | 79 |
+
+Training balance after assignment: 28,384 real vs 31,066 fake crops, **1:1.09**.
+
+Two consequences of the data that the numbers above make visible:
+
+**DFD gets no validation set.** Its 28 actors form only 3 identity components (18, 5 and 5 actors), so 83% of the domain is a single indivisible block. A three-way split would have left validation with 22 real videos and test with 11 — sample sizes on which an AUC is indistinguishable from noise. `DataConfig.min_groups_for_val` folds validation's share into test instead, giving one usable evaluation slice of 33 real / 162 fake videos. Model selection therefore runs on the FF++ validation set, which has 840 videos across 70 independent groups.
+
+**Celeb-DF's 340 test-list fakes span only 4 identity components.** This is the quantitative confirmation of the leakage finding in section 3.4: the synthesis identity graph is so densely connected that the official test list cannot be identity-disjoint from the remainder. It is the reason the domain is held out rather than split.
+
+Measured on this machine: decode-and-crop runs at ~0.9 s/video (≈2 hours for all 7,718), and crops average 23 KB, projecting to **2.3 GB** of face crops. MTCNN detection is the dominant remaining cost and is expected to take the total to roughly 4–8 hours on 4 CPU cores — hence the resumable ledger.
 
 ---
 

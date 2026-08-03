@@ -47,6 +47,23 @@ Contracts are versioned via `SCHEMA_VERSION`. Any breaking change is announced b
 
 ---
 
+## Running the data pipeline (M1)
+
+```bash
+python -m falsora_ai.data manifest        # seconds — scan, split, verify, write manifest
+python -m falsora_ai.data extract --limit 20   # smoke-test on 20 videos first
+python -m falsora_ai.data extract         # the real run: 4–8 h, interruptible
+python -m falsora_ai.data report          # what's on disk right now
+```
+
+`manifest` is deterministic — re-running it produces a byte-identical `manifests/videos.csv`, so it is safe to run any time and the file is committed for review.
+
+`extract` journals every completed video to `face_crops/_extraction_ledger.jsonl` and flushes after each one. **Close the laptop whenever you like**; re-running picks up where it stopped. Expect roughly 2.3 GB of crops.
+
+Always run `extract --limit 20` first. It exercises the full path in about a minute, and the yield line at the end tells you whether the detector is finding faces before you commit four hours to it.
+
+---
+
 ## Package layout
 
 ```
@@ -68,8 +85,8 @@ falsora_ai/
 
 | # | Module | Deliverable | Status |
 |---|---|---|---|
-| M0 | — | Repo hygiene, package skeleton, contracts, config, CI | ✅ **Done** — 55 tests passing |
-| M1 | — | Manifest, identity-disjoint splits, resumable face extraction | ⬜ Next |
+| M0 | — | Repo hygiene, package skeleton, contracts, config, CI | ✅ **Done** — 63 tests passing |
+| M1 | — | Manifest, identity-disjoint splits, resumable face extraction | ✅ **Done** — 179 tests passing |
 | M2 | — | Torch Dataset, transforms, dataloaders | ⬜ |
 | M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ⬜ |
 | M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ⬜ |
@@ -107,7 +124,9 @@ Two findings from the disk audit that are encoded in `config.py` and must not be
 - **`raw_datasets/FF++/fake` is excluded.** All 200 files are an exact subset of `FaceForensics++_C23/DeepFakeDetection`. Including both double-counts them and risks placing one video in two splits.
 - **`raw_datasets/FF++/real` is kept** and treated as `DFD_real`. Its 200 actor originals have zero filename overlap with `DeepFakeDetection` and are the only REAL counterpart to the 1,000 DFD fakes anywhere on disk.
 
-Frame budget: 137,075 face crops from 13,729 videos, balanced to 1:1.05 real:fake globally and within each domain. `tests/test_config.py::TestFrameBudget` fails the build if an edit breaks that balance.
+- **Celeb-DF v2 is held out of training entirely.** Its official test list is not identity-disjoint — 56 of 59 celebrity identities appear on both sides of it — so training on the remainder and scoring on the list would measure face memorisation. It is used only as an unseen-dataset benchmark, matching the standard "train on FF++, test on Celeb-DF" protocol. `tests/test_config.py::TestDatasetRoles` fails the build if anyone reverses this.
+
+Frame budget: **80,400** training crops from 7,200 FF++/DFD videos, balanced to 1:1.09 real:fake globally and within each domain, plus ~16,600 held-out Celeb-DF crops for cross-dataset evaluation. `tests/test_config.py::TestFrameBudget` fails the build if an edit breaks that balance.
 
 ---
 

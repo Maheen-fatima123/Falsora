@@ -99,7 +99,7 @@ class PathConfig:
 
 @dataclass(frozen=True)
 class DataConfig:
-    """Dataset composition and the frame budget.
+    """Dataset composition, roles and the frame budget.
 
     ``frames_per_video`` is deliberately per-source rather than global. It is
     tuned so real and fake are balanced *within every domain*, which removes the
@@ -109,6 +109,15 @@ class DataConfig:
     ``raw_datasets/FF++/fake`` is also in
     ``raw_datasets/FaceForensics++_C23/DeepFakeDetection``. Including both would
     double-count those videos and risk placing one video in two splits.
+
+    ``DOMAIN_ROLES`` encodes the evaluation protocol. Celeb-DF is held out of
+    training entirely, because its official test list is **not
+    identity-disjoint**: 56 of its 59 celebrity identities appear in both the
+    official test list and the remaining pool. Training on that pool and
+    reporting accuracy on that test list would measure memorisation of specific
+    faces. Holding Celeb-DF out makes it a genuine unseen-dataset benchmark and
+    matches the standard "train on FF++, test on Celeb-DF" protocol used
+    throughout the deepfake detection literature.
     """
 
     # source directory (relative to raw_datasets) -> label
@@ -133,6 +142,7 @@ class DataConfig:
 
     frames_per_video: dict[str, int] = field(
         default_factory=lambda: {
+            # --- training pool: tuned for 1:1.09 real:fake ---
             "FaceForensics++_C23/original": 32,
             "FaceForensics++_C23/Deepfakes": 7,
             "FaceForensics++_C23/Face2Face": 7,
@@ -141,11 +151,30 @@ class DataConfig:
             "FaceForensics++_C23/NeuralTextures": 7,
             "FaceForensics++_C23/DeepFakeDetection": 7,
             "FF++/real": 32,
+            # --- held-out benchmark: uniform depth, only the official
+            #     test-list videos are extracted at all ---
             "Celeb DF/Celeb-real": 32,
             "Celeb DF/YouTube-real": 32,
-            "Celeb DF/Celeb-synthesis": 5,
+            "Celeb DF/Celeb-synthesis": 32,
         }
     )
+
+    # Which datasets may be trained on, and which are held out entirely.
+    #   "train_pool"   -> split into train / val / test by identity
+    #   "heldout_test" -> never seen during training; cross-dataset benchmark
+    DOMAIN_ROLES: dict[str, str] = field(
+        default_factory=lambda: {
+            "ffpp": "train_pool",
+            "dfd": "train_pool",
+            "celebdf": "heldout_test",
+        }
+    )
+
+    # Celeb-DF ships an official evaluation list. We restrict extraction to
+    # those 518 videos: the rest would cost hours of CPU for data we have
+    # committed never to train on.
+    celebdf_test_list: str = "Celeb DF/List_of_testing_videos.txt"
+    celebdf_use_official_list_only: bool = True
 
     # Domain grouping, used for split logic and cross-dataset evaluation.
     domain_of: dict[str, str] = field(
@@ -166,15 +195,45 @@ class DataConfig:
 
     video_extensions: tuple[str, ...] = (".mp4", ".avi", ".mov", ".mkv")
 
-    # Split ratios. Celeb-DF ignores these in favour of its official
-    # List_of_testing_videos.txt, which is present on disk.
+    # Split ratios. These apply to the train_pool only. Held-out domains are
+    # never split — every one of their videos is test data by definition.
     train_ratio: float = 0.72
     val_ratio: float = 0.14
     test_ratio: float = 0.14
     split_seed: int = 231659  # Maheen's registration number — memorable and fixed
 
+    # A domain is split three ways only if it has enough indivisible identity
+    # groups for the pieces to mean anything. DFD has just 3 (its 28 actors form
+    # components of 18/5/5), so a three-way split hands validation 22 real
+    # videos and test 11 — sample sizes on which an AUC is indistinguishable
+    # from noise. Below this threshold the domain is split train/test only:
+    # it contributes training diversity plus one evaluation slice of usable
+    # size, and model selection falls to the domains that can support it.
+    min_groups_for_val: int = 10
+
+    # ---- derived accessors -------------------------------------------------
+    # Everything downstream asks these questions rather than re-deriving the
+    # protocol from the raw dicts, so the hold-out decision has exactly one
+    # definition and the tests can pin it.
+
     def frames_for(self, source: str) -> int:
         return self.frames_per_video.get(source, 8)
+
+    def role_of(self, source: str) -> str:
+        """``"train_pool"`` or ``"heldout_test"`` for a source directory."""
+        return self.DOMAIN_ROLES[self.domain_of[source]]
+
+    def training_sources(self) -> tuple[str, ...]:
+        """Sources the model is allowed to learn from."""
+        return tuple(
+            s for s in self.SOURCE_LABELS if self.role_of(s) == "train_pool"
+        )
+
+    def heldout_sources(self) -> tuple[str, ...]:
+        """Sources reserved for cross-dataset evaluation only."""
+        return tuple(
+            s for s in self.SOURCE_LABELS if self.role_of(s) == "heldout_test"
+        )
 
 
 # --------------------------------------------------------------------------
