@@ -49,7 +49,13 @@ Contracts are versioned via `SCHEMA_VERSION`. Any breaking change is announced b
 
 ## Running the data pipeline (M1)
 
+**Activate the venv first.** Running from a base conda environment picks up pydantic v1 and fails at import; `doctor` diagnoses that and everything else in about two seconds.
+
 ```bash
+source venv/bin/activate                  # macOS / Linux
+# venv\Scripts\activate                   # Windows
+
+python -m falsora_ai.data doctor          # check the environment BEFORE the long run
 python -m falsora_ai.data manifest        # seconds — scan, split, verify, write manifest
 python -m falsora_ai.data extract --limit 20   # smoke-test on 20 videos first
 python -m falsora_ai.data extract         # the real run: 4–8 h, interruptible

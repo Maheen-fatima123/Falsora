@@ -83,6 +83,90 @@ def cmd_extract(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
+    """Check the environment before committing hours to an extraction run.
+
+    Every dependency here fails at a different moment: pydantic at import,
+    OpenCV on the first decode, torch and facenet-pytorch only when the
+    detector is first constructed — which is after the run has started. This
+    surfaces all of them in a couple of seconds.
+    """
+    import platform
+
+    print(f"python      {platform.python_version()}  ({sys.executable})")
+
+    ok = True
+
+    def check(label: str, fn) -> None:
+        nonlocal ok
+        try:
+            print(f"{label:<12}{fn()}")
+        except Exception as exc:  # noqa: BLE001 — reporting, not handling
+            ok = False
+            print(f"{label:<12}MISSING — {type(exc).__name__}: {exc}")
+
+    def _pydantic() -> str:
+        import pydantic
+
+        if pydantic.VERSION.split(".")[0] != "2":
+            raise RuntimeError(f"{pydantic.VERSION} — need 2.x (wrong environment active?)")
+        return pydantic.VERSION
+
+    def _numpy() -> str:
+        import numpy
+
+        return numpy.__version__
+
+    def _cv2() -> str:
+        import cv2
+
+        return cv2.__version__
+
+    def _torch() -> str:
+        import torch
+
+        return f"{torch.__version__}  (mps={torch.backends.mps.is_available()}, cuda={torch.cuda.is_available()})"
+
+    def _facenet() -> str:
+        import facenet_pytorch
+
+        return getattr(facenet_pytorch, "__version__", "installed")
+
+    check("pydantic", _pydantic)
+    check("numpy", _numpy)
+    check("opencv", _cv2)
+    check("torch", _torch)
+    check("facenet", _facenet)
+
+    # torch and numpy are compiled against each other. A torch built for numpy
+    # 1.x raises at the first array conversion under numpy 2.x — deep inside
+    # MTCNN, long after extraction has started.
+    try:
+        import numpy as np
+        import torch
+    except ImportError:
+        print("interop     skipped (torch not installed)")
+    else:
+        try:
+            torch.from_numpy(np.zeros((2, 2), dtype=np.float32)).numpy()
+            print("interop     torch<->numpy OK")
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            print(f"interop     BROKEN — {type(exc).__name__}: {exc}")
+            print("            torch and numpy were compiled against different major")
+            print(f"            versions (torch {torch.__version__}, numpy {np.__version__}).")
+            print("            Fix with:  pip install 'numpy<2'")
+
+    print()
+    print(f"raw_datasets  {cfg.paths.raw_datasets}  {'found' if cfg.paths.raw_datasets.is_dir() else 'MISSING'}")
+    manifest = _manifest_path(cfg)
+    print(f"manifest      {manifest}  {'found' if manifest.exists() else 'not built yet'}")
+
+    print()
+    print("READY — safe to run extract" if ok else "NOT READY — fix the items above first")
+    return 0 if ok else 1
+
+
 def cmd_report(cfg: Config, args: argparse.Namespace) -> int:
     path = _manifest_path(cfg)
     if not path.exists():
@@ -128,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     sub.add_parser("report", help="summarise the manifest and extraction progress")
+    sub.add_parser("doctor", help="check the environment before a long extraction run")
 
     args = parser.parse_args(argv)
     cfg = Config()
@@ -136,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         "manifest": cmd_manifest,
         "extract": cmd_extract,
         "report": cmd_report,
+        "doctor": cmd_doctor,
     }
     return handlers[args.command](cfg, args)
 

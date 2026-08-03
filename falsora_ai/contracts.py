@@ -49,7 +49,41 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+import pydantic
+
+# Pydantic v1 and v2 are different libraries wearing the same name. Every model
+# below uses v2-only APIs (`ConfigDict`, `computed_field`, `model_validator`),
+# and on v1 the failure is a bare
+#   ImportError: cannot import name 'computed_field' from 'pydantic'
+# which says nothing about the actual cause: usually a shell sitting in a base
+# conda environment instead of the project venv.
+#
+# This module is the integration surface Ujala and Mehreen import, so it is the
+# single place all three of us will hit the problem. Better it explains itself.
+if pydantic.VERSION.split(".")[0] != "2":
+    raise ImportError(
+        f"Falsora requires pydantic 2.x but found {pydantic.VERSION} at "
+        f"{pydantic.__file__}.\n"
+        "\n"
+        "This almost always means the wrong interpreter is active — a base "
+        "conda environment rather than the project venv.\n"
+        "\n"
+        "  source venv/bin/activate      # macOS / Linux\n"
+        "  venv\\\\Scripts\\\\activate       # Windows\n"
+        "\n"
+        "If you have no venv yet:\n"
+        "\n"
+        "  python -m venv venv && source venv/bin/activate\n"
+        '  pip install -e ".[dev]"\n'
+    )
+
+from pydantic import (  # noqa: E402 — must follow the version guard above
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_validator,
+)
 
 SCHEMA_VERSION = "1.0.0"
 
