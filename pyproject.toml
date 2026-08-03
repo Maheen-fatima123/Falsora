@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "falsora-ai"
+version = "0.1.0"
+description = "Falsora AI & Forensic Engine — modules 6.6, 6.7, 6.16 and Model Optimization"
+readme = "README_AI.md"
+requires-python = ">=3.10,<3.12"
+authors = [{ name = "Maheen Fatima", email = "maheenfatima4466@gmail.com" }]
+
+# Core dependencies only — importing falsora_ai.contracts must stay cheap so
+# that Ujala's API layer and Mehreen's decision engine can depend on this
+# package without installing torch.
+dependencies = [
+    "pydantic>=2.5,<3",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Everything needed to train and run models.
+ml = [
+    "torch>=2.2,<2.6",
+    "torchvision>=0.17",
+    "timm>=1.0",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pillow>=10.0",
+    "albumentations>=1.4",
+    "facenet-pytorch>=2.5",
+    "scikit-learn>=1.4",
+    "pandas>=2.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+    "grad-cam>=1.5",
+]
+# Model optimization module.
+optimize = [
+    "onnx>=1.15",
+    "onnxruntime>=1.17",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+
+[tool.setuptools.packages.find]
+include = ["falsora_ai*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests (deselect with '-m \"not slow\"')",
+    "gpu: requires a CUDA device",
+    "data: requires raw_datasets/ to be present",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
