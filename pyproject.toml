@@ -21,11 +21,24 @@ dependencies = [
 [project.optional-dependencies]
 # Everything needed to train and run models.
 ml = [
+    # Upper bound on torch is not cosmetic: torch 2.6 flipped the default of
+    # `torch.load` to weights_only=True, which breaks facenet-pytorch's
+    # pretrained MTCNN weight loading.
     "torch>=2.2,<2.6",
-    "torchvision>=0.17",
+    "torchvision>=0.17,<0.21",
     "timm>=1.0",
-    "numpy>=1.26",
-    "opencv-python-headless>=4.9",
+    # numpy MUST stay below 2. torch wheels in the 2.2-2.5 range are compiled
+    # against the numpy 1.x C API; under numpy 2.x torch imports with
+    # "Failed to initialize NumPy: _ARRAY_API not found" and then dies at the
+    # first array conversion with "Could not infer dtype of numpy.uint8" —
+    # deep inside MTCNN, i.e. after a multi-hour extraction has begun.
+    # Raising this ceiling requires raising the torch floor to >=2.6 first,
+    # which in turn requires replacing facenet-pytorch. Do not loosen casually.
+    "numpy>=1.26,<2",
+    # OpenCV 5.x is a new major line that requires numpy>=2, so it collides
+    # with the constraint above. 4.x is also the version this pipeline was
+    # verified against.
+    "opencv-python-headless>=4.9,<5",
     "pillow>=10.0",
     "albumentations>=1.4",
     "facenet-pytorch>=2.5",
