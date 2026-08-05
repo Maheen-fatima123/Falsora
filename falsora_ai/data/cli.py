@@ -14,7 +14,9 @@ has changed. ``extract`` is the slow one and can be interrupted freely.
 from __future__ import annotations
 
 import argparse
+import random
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from falsora_ai.config import Config
@@ -27,6 +29,7 @@ from falsora_ai.data.extract import (
     write_crop_index,
 )
 from falsora_ai.data.manifest import (
+    VideoRecord,
     build_manifest,
     read_manifest,
     summarise,
@@ -39,6 +42,45 @@ MANIFEST_NAME = "videos.csv"
 
 def _manifest_path(cfg: Config) -> Path:
     return cfg.paths.manifests / MANIFEST_NAME
+
+
+def stratified_sample(
+    records: list[VideoRecord], n: int, seed: int
+) -> list[VideoRecord]:
+    """Draw ``n`` videos spread evenly over every (domain, label) stratum.
+
+    A smoke test exists to answer one question: does face detection lose
+    videos, and does it lose them evenly across real and fake? The manifest is
+    sorted by path, so taking the first N answers neither — N=20 lands entirely
+    inside Celeb-DF's real videos, which is one class of one domain, and that
+    domain is held out of training anyway. A run like that can report 100%
+    yield while the detector silently fails on half of FF++'s fakes.
+
+    Round-robin over the strata rather than sampling proportionally: the point
+    is coverage of the rare combinations, not a miniature of the corpus.
+    """
+    if n <= 0:
+        return []
+    buckets: dict[tuple[str, str], list[VideoRecord]] = defaultdict(list)
+    for rec in records:
+        buckets[(rec.domain, rec.label)].append(rec)
+
+    rng = random.Random(seed)
+    for bucket in buckets.values():
+        rng.shuffle(bucket)
+
+    out: list[VideoRecord] = []
+    keys = sorted(buckets)
+    while len(out) < n and any(buckets[k] for k in keys):
+        for key in keys:
+            if not buckets[key]:
+                continue
+            out.append(buckets[key].pop())
+            if len(out) == n:
+                break
+    # Restore manifest order so the ledger is written in a stable sequence.
+    order = {r.relpath: i for i, r in enumerate(records)}
+    return sorted(out, key=lambda r: order[r.relpath])
 
 
 def cmd_manifest(cfg: Config, args: argparse.Namespace) -> int:
@@ -70,8 +112,10 @@ def cmd_extract(cfg: Config, args: argparse.Namespace) -> int:
         records = [r for r in records if r.split in args.split]
         print(f"Restricted to splits {args.split}: {len(records):,} videos")
     if args.limit:
-        records = records[: args.limit]
-        print(f"Limited to the first {len(records):,} videos (smoke test)")
+        records = stratified_sample(records, args.limit, seed=cfg.data.seed)
+        strata = Counter((r.domain, r.label) for r in records)
+        detail = "  ".join(f"{d}/{lab}={c}" for (d, lab), c in sorted(strata.items()))
+        print(f"Smoke test on {len(records):,} videos — {detail}")
 
     cfg.paths.ensure()
     results = extract_all(records, cfg, resume=not args.no_resume)
@@ -203,7 +247,10 @@ def main(argv: list[str] | None = None) -> int:
         help="restrict to these splits (default: all)",
     )
     extract.add_argument(
-        "--limit", type=int, help="stop after N videos — use this to smoke-test first"
+        "--limit",
+        type=int,
+        help="smoke-test on N videos sampled evenly across every domain and "
+        "label (deterministic, seeded)",
     )
     extract.add_argument(
         "--no-resume",
