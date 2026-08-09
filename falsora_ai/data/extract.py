@@ -271,9 +271,16 @@ def extract_all(
 
     if detector is None:
         from falsora_ai.common.faces import MTCNNDetector
-        from falsora_ai.config import resolve_device
 
-        detector = MTCNNDetector(cfg.face, device=resolve_device())
+        # Deliberately CPU, not resolve_device(). Extraction is a one-time,
+        # CPU/IO-bound job (ENGINEERING_PLAN.md 2.1) — no GPU is needed and
+        # none should be requested. On Apple Silicon, resolve_device() would
+        # pick "mps", and facenet-pytorch's MTCNN resize step hits a real
+        # PyTorch MPS gap: adaptive_avg_pool2d requires the input size to be
+        # evenly divisible by the output size on that backend, which video
+        # frames are not. Training (M3 onward) still calls resolve_device()
+        # to get GPU/MPS acceleration where it actually matters.
+        detector = MTCNNDetector(cfg.face, device="cpu")
 
     results = dict(done)
     for i, record in enumerate(todo, start=1):
