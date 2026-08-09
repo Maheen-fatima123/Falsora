@@ -99,7 +99,7 @@ falsora_ai/
 | M5 | 6.6 | Fused engine emitting `ForgeryResult` | ⬜ |
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ⬜ |
 | M7 | — | ONNX export, INT8 quantization, measured latency | ⬜ |
-| M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ⬜ |
+| M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
 | M9 | — | Service adapters + integration guide | ⬜ |
 | M10 | — | Final metrics, model card, scope-document corrections | ⬜ |
 
