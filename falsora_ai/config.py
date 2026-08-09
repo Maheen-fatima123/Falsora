@@ -32,6 +32,7 @@ __all__ = [
     "ModelConfig",
     "TrainConfig",
     "LiveConfig",
+    "TamperingConfig",
     "Config",
 ]
 
@@ -77,6 +78,16 @@ class PathConfig:
     def splits_file(self) -> Path:
         """Frozen identity-disjoint split assignment. Written once, never edited."""
         return self.manifests / "splits.json"
+
+    @property
+    def casia_root(self) -> Path:
+        """CASIA v2.0 dataset root — raw data for the tampering branch (6.6b)."""
+        return self.raw_datasets / "CASIA2"
+
+    @property
+    def casia_manifest(self) -> Path:
+        """Image-level CASIA manifest: one row per image, with split assignment."""
+        return self.manifests / "casia.csv"
 
     def ensure(self) -> None:
         """Create writable output directories. Never touches input directories."""
@@ -237,6 +248,49 @@ class DataConfig:
 
 
 # --------------------------------------------------------------------------
+# Tampering branch (module 6.6b — CASIA v2.0)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TamperingConfig:
+    """CASIA v2.0 layout, ELA/residual parameters, and the tampering split.
+
+    Split ratios and seed intentionally mirror :class:`DataConfig`'s: there is
+    no reason for the tampering branch's train/val/test proportions to differ
+    from the deepfake branch's, and a reviewer comparing the two split reports
+    shouldn't have to wonder why they disagree.
+
+    CASIA v2.0 has one domain, not three, so unlike ``DataConfig`` there is no
+    ``DOMAIN_ROLES``/held-out split here — every image is eligible for
+    train/val/test, and ``falsora_ai.data.casia_splits`` packs it in one pass
+    rather than per domain.
+    """
+
+    au_dir: str = "Au"  # authentic images
+    tp_dir: str = "Tp"  # tampered (spliced / copy-moved) images
+    gt_dir: str = "CASIA 2 Groundtruth"  # per-Tp-image binary masks
+
+    # Verified against the full download: Au is jpg/bmp, Tp is jpg/tif.
+    image_extensions: tuple[str, ...] = (".jpg", ".bmp")
+    tampered_extensions: tuple[str, ...] = (".jpg", ".tif")
+
+    train_ratio: float = 0.72
+    val_ratio: float = 0.14
+    test_ratio: float = 0.14
+    split_seed: int = 231659  # Maheen's registration number — same as DataConfig
+
+    input_size: int = 224
+
+    # Error Level Analysis: JPEG resave quality and post-hoc amplification so
+    # a few-value difference is visible in [0, 255]. Both must match between
+    # training and inference — the single reason they live here rather than
+    # as literals in ela.py.
+    ela_quality: int = 90
+    ela_gain: float = 15.0
+
+
+# --------------------------------------------------------------------------
 # Face detection
 # --------------------------------------------------------------------------
 
@@ -375,6 +429,7 @@ class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     live: LiveConfig = field(default_factory=LiveConfig)
+    tampering: TamperingConfig = field(default_factory=TamperingConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -398,6 +453,7 @@ class Config:
             "model": ModelConfig,
             "train": TrainConfig,
             "live": LiveConfig,
+            "tampering": TamperingConfig,
         }
         unknown = set(raw) - set(section_types)
         if unknown:
