@@ -1,0 +1,86 @@
+name: AI Engine CI
+
+# Scoped to the AI engine so it does not run on Ujala's or Mehreen's commits.
+on:
+  push:
+    branches: ["feat/ai-**", "main", "develop"]
+    paths:
+      - "falsora_ai/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/ai-engine-ci.yml"
+  pull_request:
+    paths:
+      - "falsora_ai/**"
+      - "tests/**"
+      - "pyproject.toml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # Deliberately installs only [dev], NOT [ml]. The contracts and config
+      # must remain importable without torch — that is a design guarantee for
+      # Ujala's API layer, and CI is where it gets enforced.
+      - name: Install (contracts only, no torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Assert torch is absent
+        run: |
+          python -c "
+          import importlib.util, sys
+          if importlib.util.find_spec('torch') is not None:
+              sys.exit('torch leaked into core dependencies — move it to [ml]')
+          import falsora_ai
+          from falsora_ai.contracts import ForgeryResult, FrameScore, RollingScoreState
+          from falsora_ai.config import Config
+          assert 'torch' not in sys.modules, 'importing falsora_ai pulled in torch'
+          print('OK: falsora_ai imports cleanly without torch')
+          "
+
+      - name: Lint
+        run: ruff check falsora_ai tests
+
+      - name: Tests
+        run: pytest tests -q --cov=falsora_ai --cov-report=term-missing
+
+  guard-large-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # raw_datasets/ is ~26 GB. One accidental `git add .` would make the
+      # repository unusable for the whole team, and rewriting history to undo
+      # it is painful. Fail the build instead.
+      - name: Reject files over 40 MB and stray media
+        run: |
+          BIG=$(find . -path ./.git -prune -o -type f -size +40M -print)
+          if [ -n "$BIG" ]; then
+            echo "::error::Files larger than 40MB detected:"
+            echo "$BIG"
+            exit 1
+          fi
+          MEDIA=$(git ls-files | grep -Ei '\.(mp4|avi|mov|mkv|pt|pth|onnx|ckpt)$' || true)
+          if [ -n "$MEDIA" ]; then
+            echo "::error::Dataset or weight files are tracked by git:"
+            echo "$MEDIA"
+            exit 1
+          fi
+          echo "OK: no oversized or media files tracked"
