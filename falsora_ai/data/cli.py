@@ -20,6 +20,16 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from falsora_ai.config import Config
+from falsora_ai.data.casia_manifest import (
+    build_casia_manifest,
+    summarise_casia,
+    write_casia_manifest,
+)
+from falsora_ai.data.casia_splits import (
+    assign_casia_splits,
+    casia_split_report,
+    verify_source_disjoint,
+)
 from falsora_ai.data.extract import (
     CROP_INDEX_NAME,
     LEDGER_NAME,
@@ -211,6 +221,27 @@ def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_casia(cfg: Config, args: argparse.Namespace) -> int:
+    """Build the CASIA v2.0 manifest for the tampering branch (module 6.6b).
+
+    Unlike ``manifest``, there is no separate ``extract`` step: CASIA v2.0's
+    12.6k images are already the training unit (no video decoding, no frame
+    sampling), so this single command scans, splits and writes in one pass.
+    """
+    print(f"Scanning {cfg.paths.casia_root} ...")
+    records = build_casia_manifest(cfg.paths.casia_root, cfg.tampering)
+    print(summarise_casia(records))
+
+    print("\nAssigning source-image-disjoint splits ...")
+    records = assign_casia_splits(records, cfg.tampering)
+    verify_source_disjoint(records)  # belt and braces; assign_casia_splits also checks
+    print(casia_split_report(records))
+
+    path = write_casia_manifest(records, cfg.paths.casia_manifest)
+    print(f"\nVerified source-disjoint. Wrote {len(records):,} rows to {path}")
+    return 0
+
+
 def cmd_report(cfg: Config, args: argparse.Namespace) -> int:
     path = _manifest_path(cfg)
     if not path.exists():
@@ -260,6 +291,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("report", help="summarise the manifest and extraction progress")
     sub.add_parser("doctor", help="check the environment before a long extraction run")
+    sub.add_parser(
+        "casia", help="scan CASIA v2.0, assign source-disjoint splits, write its manifest"
+    )
 
     args = parser.parse_args(argv)
     cfg = Config()
@@ -269,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         "extract": cmd_extract,
         "report": cmd_report,
         "doctor": cmd_doctor,
+        "casia": cmd_casia,
     }
     return handlers[args.command](cfg, args)
 

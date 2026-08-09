@@ -53,6 +53,13 @@ jobs:
           print('OK: falsora_ai imports cleanly without torch')
           "
 
+      # Only after the torch-free guarantee above is checked: the rest of the
+      # suite exercises the data pipeline and model code, which legitimately
+      # need numpy/opencv/torch. Installing [ml] here, not earlier, is what
+      # keeps this step from ever masking a torch leak into core deps.
+      - name: Install ML extras
+        run: pip install -e ".[ml]"
+
       - name: Lint
         run: ruff check falsora_ai tests
 

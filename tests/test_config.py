@@ -279,4 +279,5 @@ class TestConfigComposition:
             "model",
             "train",
             "live",
+            "tampering",
         }
