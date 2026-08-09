@@ -112,7 +112,7 @@ def cmd_extract(cfg: Config, args: argparse.Namespace) -> int:
         records = [r for r in records if r.split in args.split]
         print(f"Restricted to splits {args.split}: {len(records):,} videos")
     if args.limit:
-        records = stratified_sample(records, args.limit, seed=cfg.data.seed)
+        records = stratified_sample(records, args.limit, seed=cfg.data.split_seed)
         strata = Counter((r.domain, r.label) for r in records)
         detail = "  ".join(f"{d}/{lab}={c}" for (d, lab), c in sorted(strata.items()))
         print(f"Smoke test on {len(records):,} videos — {detail}")
