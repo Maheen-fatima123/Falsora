@@ -109,15 +109,48 @@ M8 depends only on M0, so module 6.16 can be built in parallel if GPU access sli
 
 ## Git workflow
 
-One module per branch, one pull request each.
+This is the **shared repo for all three of us** (Maheen, Ujala, Mehreen). One
+whole module per branch, one pull request each — but modules do **not** merge
+straight into `main`. They merge into a shared `integration` branch first;
+`main` only ever receives a state that has been verified working with the
+other modules it depends on.
+
+```
+your-module-branch --> PR --> integration --> (verified working together) --> main
+```
 
 ```bash
-git checkout -b feat/ai-m1-data-pipeline
+git checkout integration
+git pull
+git checkout -b feat/ai-m5-engine-66
 # ... work ...
-git add falsora_ai/data tests/test_splits.py
-git commit -m "feat(6.6): identity-disjoint split logic and resumable face extraction"
-git push -u origin feat/ai-m1-data-pipeline
+git add falsora_ai/engine_66 tests/test_engine_66.py
+git commit -m "feat(6.6): fused engine emitting ForgeryResult"
+git push -u origin feat/ai-m5-engine-66
+gh pr create --base integration   # NOT main
 ```
+
+**Why an `integration` branch:** three people own different pieces that call
+into each other through `falsora_ai/contracts.py`. Merging every module
+straight into `main` the moment its own tests pass means `main` can pass CI
+while still being broken end-to-end (e.g. Maheen's `ForgeryResult` shape
+changes and breaks Ujala's API layer, but neither PR alone shows that).
+Routing through `integration` gives us one place to catch that before it
+reaches `main`.
+
+**When `integration` gets promoted to `main`:** after modules that depend on
+each other have been run together and actually work — e.g. once 6.6's fusion
+engine (M5) exists and both the deepfake and tampering branches feed it
+correctly, or once Ujala's API layer is confirmed working against a real
+`ForgeryResult`. Whoever proposes the promotion opens a normal PR from
+`integration` into `main` so the other two can review the combined diff
+before it lands.
+
+**Existing history:** M0/M1/M2/M8 were already merged directly into `main`
+before this convention was adopted. They're foundational/independent
+(config, data pipeline, dataset layer, rolling score) with no cross-person
+integration risk, so they were left as-is rather than rewriting history. This
+convention applies going forward, starting with M3 onward.
 
 **Never `git add .` in this repository.** `raw_datasets/` is ~26 GB. `.gitignore` covers it and CI fails the build on any file over 40 MB or any tracked `.mp4`/`.pt`/`.onnx`, but staging files explicitly is the habit that actually prevents the accident.
 
