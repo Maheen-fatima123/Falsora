@@ -95,7 +95,7 @@ falsora_ai/
 | M1 | — | Manifest, identity-disjoint splits, resumable face extraction | ✅ **Done** — 179 tests passing |
 | M2 | — | Torch Dataset, transforms, dataloaders | ⬜ |
 | M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ⬜ |
-| M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ⬜ |
+| M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ✅ **Done** — test image_auc=0.878 (accuracy=0.803), val image_auc=0.882 (accuracy=0.804) |
 | M5 | 6.6 | Fused engine emitting `ForgeryResult` | ⬜ |
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ⬜ |
 | M7 | — | ONNX export, INT8 quantization, measured latency | ⬜ |
