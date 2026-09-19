@@ -143,7 +143,15 @@ def resize_stacked_input(stacked: np.ndarray, size: int) -> np.ndarray:
 
     ``cv2.resize`` handles an arbitrary channel count in one call, which keeps
     all five channels resampled identically, unlike an albumentations
-    ``Resize`` (built for 1/3/4-channel images and image+mask pairs).
+    ``Resize`` (built for 1/3/4-channel images and image+mask pairs). One
+    exception: OpenCV's ``INTER_AREA`` decimation fast path only supports up
+    to 4 channels when downsizing (``cn <= 4`` assertion) — every real CASIA
+    image is 5-channel here, so downsizing falls back to ``INTER_LINEAR``,
+    which has no such channel-count restriction.
     """
-    interpolation = cv2.INTER_AREA if stacked.shape[0] > size else cv2.INTER_CUBIC
+    downsizing = stacked.shape[0] > size
+    if downsizing:
+        interpolation = cv2.INTER_AREA if stacked.shape[2] <= 4 else cv2.INTER_LINEAR
+    else:
+        interpolation = cv2.INTER_CUBIC
     return cv2.resize(stacked, (size, size), interpolation=interpolation)
