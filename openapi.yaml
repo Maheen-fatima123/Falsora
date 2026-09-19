@@ -1,0 +1,175 @@
+openapi: 3.0.3
+info:
+  title: Falsora FYP - Media Forensics API
+  version: 1.1.0
+  description: >
+    API contracts for the Falsora Digital Media Forensics & Verification Platform.
+    This defines the integration points between the Core App (Node.js), AI Engine (Python), and Decision Engine.
+
+servers:
+  - url: http://localhost:4000
+    description: Core API (Node.js)
+  - url: http://localhost:8000
+    description: AI Engine (Python/FastAPI)
+
+paths:
+  # -------------------------
+  # Core API: Auth
+  # -------------------------
+  /api/auth/login:
+    post:
+      summary: Login user
+      description: Issues HttpOnly JWT and refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in successfully
+  
+  /api/auth/refresh:
+    post:
+      summary: Refresh JWT Access Token
+      description: Uses HttpOnly refresh token to issue a new access token
+      responses:
+        '200':
+          description: Token refreshed
+
+  # -------------------------
+  # Core API: Cases
+  # -------------------------
+  /api/cases:
+    get:
+      summary: List all verification cases
+      responses:
+        '200':
+          description: List of cases
+  
+  /api/cases/upload:
+    post:
+      summary: Upload a media file for analysis
+      description: Creates a Case, extracts EXIF, calculates SHA-256 + dHash, checks duplicates.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                media:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+      responses:
+        '201':
+          description: Case created and queued for processing.
+
+  /api/cases/{id}:
+    get:
+      summary: Get case details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Case details including metadata and integrity scores
+
+  # -------------------------
+  # Core API: Streams (Webcam)
+  # -------------------------
+  /api/streams:
+    get:
+      summary: List webcam sessions
+      responses:
+        '200':
+          description: List of stream sessions
+    post:
+      summary: Start a webcam session
+      description: Creates a new StreamSession linked to a new Case.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+      responses:
+        '200':
+          description: Stream session created
+
+  /api/streams/{id}/end:
+    post:
+      summary: End an active webcam session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session marked as ENDED
+
+  # -------------------------
+  # AI Engine
+  # -------------------------
+  /ai/forgery/analyze:
+    post:
+      summary: Analyze media for forgery/tampering
+      description: Exposed by the AI Engine.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                media_url:
+                  type: string
+      responses:
+        '200':
+          description: Forgery analysis results.
+
+  /ai/frame/score:
+    post:
+      summary: Analyze a single frame in real-time
+      description: Exposed by the AI Engine. Called by Core API Socket.IO pipeline.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                frame_data:
+                  type: string
+                  description: Base64 encoded image frame
+      responses:
+        '200':
+          description: Per-frame forgery score.
+
+  # -------------------------
+  # Decision Engine
+  # -------------------------
+  /decision/verdict:
+    post:
+      summary: Get the final verdict for a media asset
+      description: Exposed by the Decision Engine.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                case_id:
+                  type: string
+      responses:
+        '200':
+          description: Final decision report.

@@ -1,0 +1,48 @@
+name: Falsora CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      
+      - name: Install Dependencies
+        working-directory: ./frontend
+        run: bun install
+        
+      - name: Build Next.js
+        working-directory: ./frontend
+        run: bun run build
+
+  build-core-api:
+    name: Build Core API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+          
+      - name: Install Dependencies
+        working-directory: ./core-api
+        run: bun install
+        
+      - name: Generate Prisma Client
+        working-directory: ./core-api
+        run: bunx prisma generate
+        
+      - name: Type Check & Build
+        working-directory: ./core-api
+        run: bunx tsc --noEmit
