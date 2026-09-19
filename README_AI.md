@@ -96,7 +96,7 @@ falsora_ai/
 | M2 | — | Torch Dataset, transforms, dataloaders | ⬜ |
 | M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ⬜ |
 | M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ✅ **Done** — test image_auc=0.878 (accuracy=0.803), val image_auc=0.882 (accuracy=0.804) |
-| M5 | 6.6 | Fused engine emitting `ForgeryResult` | ⬜ |
+| M5 | 6.6 | Fused engine emitting `ForgeryResult` | ✅ **Done** — `ForgeryEngine` runs both branches, 6 tests passing |
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ⬜ |
 | M7 | — | ONNX export, INT8 quantization, measured latency | ⬜ |
 | M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
