@@ -144,15 +144,15 @@ falsora_ai/
 |---|---|---|---|
 | M0 | — | Repo hygiene, package skeleton, contracts, config, CI | ✅ **Done** — 63 tests passing |
 | M1 | — | Manifest, identity-disjoint splits, resumable face extraction | ✅ **Done** — 179 tests passing |
-| M2 | — | Torch Dataset, transforms, dataloaders | ⬜ |
-| M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ⬜ |
+| M2 | — | Torch Dataset, transforms, dataloaders | ✅ **Done** — 20 tests passing |
+| M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ✅ **Done** — test video_auc=0.987 (accuracy=0.956), heldout/Celeb-DF video_auc=0.870 (accuracy=0.799) |
 | M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ✅ **Done** — test image_auc=0.878 (accuracy=0.803), val image_auc=0.882 (accuracy=0.804) |
 | M5 | 6.6 | Fused engine emitting `ForgeryResult` | ✅ **Done** — `ForgeryEngine` runs both branches, 6 tests passing |
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ✅ **Done** — `ExplanationEngine` (Grad-CAM/Grad-CAM++), 6 tests passing |
 | M7 | — | ONNX export, INT8 quantization, measured latency | ✅ **Done** — measured onnx_int8 mean 6.5 ms/frame CPU (scope claimed 8–12 ms), 10 tests passing |
 | M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
 | M9 | — | Service adapters + integration guide | ✅ **Done** — `StaticPredictor`/`FramePredictor`, 11 tests passing |
-| M10 | — | Final metrics, model card, scope-document corrections | ⬜ |
+| M10 | — | Final metrics, model card, scope-document corrections | ✅ **Done** — see `MODEL_CARD.md`, table rows above corrected, scope corrections below |
 
 M8 depends only on M0, so module 6.16 can be built in parallel if GPU access slips.
 
@@ -189,4 +189,12 @@ Frame budget: **80,400** training crops from 7,200 FF++/DFD videos, balanced to 
 
 ## Known deviations from the submitted scope document
 
-Listed in full in `ENGINEERING_PLAN.md` section 6. Summary: NIST Nimble was not obtained; Celeb-DF v2 is used but undeclared in Section 8; Table 5 still assigns metadata analysis to Maheen after the division changed; and the "8–12 ms" latency figure in Section 5.1 was unverified — M7 measured it at **6.5 ms mean** (ONNX INT8, CPU, single frame at 224×224); Section 5.1 should be updated to the measured number. Note the INT8 model only has its linear head quantized, not the convolutional backbone — see `falsora_ai/optimization/quantize.py`'s module docstring for why (onnxruntime's CPU build has no `ConvInteger` kernel on this platform).
+Listed in full in `ENGINEERING_PLAN.md` section 6 — all five corrections below are now resolved or reflected here (M10):
+
+1. **Table 5** assigns Metadata Analysis / AI Integration (6.5) to Maheen. The division has since moved 6.5 to Ujala; Table 5 needs regenerating from the current division before final submission.
+2. **Section 8.2 (NIST Nimble)** — dataset was not obtained. Should be reworded as future work, or removed.
+3. **Section 8 / Table 2** — Celeb-DF v2 is used (held-out cross-dataset benchmark, see "Verified dataset notes" below) but was never declared in the submitted document. Add it, with its role stated as cross-dataset generalisation testing only, not training.
+4. **Section 8.3** claims "approximately 1 million frames." The actual pipeline samples **96,117 face crops** (58,825 train / 9,317 val / 11,485 test / 16,490 held-out Celeb-DF — see `MODEL_CARD.md`), not all frames of all videos. An earlier "extract everything" plan would have produced ~137,000 crops from 13,729 videos; that plan was deliberately trimmed to 7,718 videos (notably, only the 518 official Celeb-DF test-list videos, not all ~6,500) to keep evaluation identity-disjoint and trustworthy — see `ENGINEERING_PLAN.md` section 2.1. Both the "~1 million" and "~137,000" figures are stale; state the sampling strategy and the actual ~96,000 figure instead.
+5. **Section 5.1** claims "~8–12 ms inference latency per frame on standard CPU." This was unverified when written — M7 measured it at **6.5 ms mean** (ONNX INT8, CPU, single frame at 224×224); Section 5.1 should be updated to the measured number. Note the INT8 model only has its linear head quantized, not the convolutional backbone — see `falsora_ai/optimization/quantize.py`'s module docstring for why (onnxruntime's CPU build has no `ConvInteger` kernel on this platform).
+
+Final trained metrics and per-module numbers are consolidated in **[`MODEL_CARD.md`](MODEL_CARD.md)**.
