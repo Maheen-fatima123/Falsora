@@ -34,7 +34,12 @@ from falsora_ai.data.transforms import deepfake_transforms
 from falsora_ai.engine_66.deepfake.model import DeepfakeNet
 from falsora_ai.engine_66.deepfake.train import load_checkpoint as load_deepfake_checkpoint
 from falsora_ai.engine_67.gradcam import TARGET_LAYER_NAME, compute_cam
-from falsora_ai.engine_67.overlay import render_heatmap, render_overlay, salient_regions, save_evidence
+from falsora_ai.engine_67.overlay import (
+    render_heatmap,
+    render_overlay,
+    salient_regions,
+    save_evidence,
+)
 
 __all__ = ["ExplanationEngine"]
 

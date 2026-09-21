@@ -15,13 +15,13 @@ import numpy as np
 import pytest
 
 from falsora_ai.config import TamperingConfig
+from falsora_ai.data.transforms import resize_stacked_input
 from falsora_ai.engine_66.tampering.ela import compute_ela_map, ela_score
 from falsora_ai.engine_66.tampering.model import (
     IN_CHANNELS,
     TamperingCNN,
     build_model_input,
 )
-from falsora_ai.data.transforms import resize_stacked_input
 from falsora_ai.engine_66.tampering.residual import compute_residual_map, residual_score
 
 torch = pytest.importorskip("torch")

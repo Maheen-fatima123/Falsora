@@ -39,7 +39,9 @@ def render_overlay(crop_rgb_float01: np.ndarray, cam: np.ndarray) -> np.ndarray:
             ``pytorch_grad_cam.utils.image.show_cam_on_image`` expects.
         cam: Output of :func:`falsora_ai.engine_67.gradcam.compute_cam`.
     """
-    from pytorch_grad_cam.utils.image import show_cam_on_image  # local: keeps this importable without torch
+    from pytorch_grad_cam.utils.image import (
+        show_cam_on_image,  # local: keeps this importable without torch
+    )
 
     return show_cam_on_image(crop_rgb_float01, cam, use_rgb=True)
 
