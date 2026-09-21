@@ -45,6 +45,57 @@ from falsora_ai.contracts import (
 
 Contracts are versioned via `SCHEMA_VERSION`. Any breaking change is announced before it merges.
 
+### Calling the engine — `falsora_ai/service/` (M9)
+
+Don't import `engine_66`/`engine_67`/`optimization` directly from the backend. Two adapter classes exist specifically so the backend never has to: construct each **once per process** (e.g. FastAPI `lifespan`), then call its `predict()` per request/frame.
+
+**REST upload path — `StaticPredictor`** (`falsora_ai/service/predict_static.py`):
+
+```python
+from falsora_ai.service.predict_static import StaticPredictor
+from falsora_ai.contracts import EngineError
+
+predictor = StaticPredictor()   # loads both checkpoints once
+
+@app.post("/api/analyze")
+def analyze(file: UploadFile):
+    result, explanation = predictor.predict(file.file.read(), case_id=case_id)
+    if isinstance(result, EngineError):
+        raise HTTPException(status_code=422, detail=result.message)
+    # result.deepfake.probability_fake, result.tampering.probability_tampered, ...
+    # explanation is None if explain=False, no face found, or Grad-CAM itself failed
+```
+
+**WebSocket live path — `FramePredictor`** (`falsora_ai/service/predict_frame.py`):
+
+```python
+from falsora_ai.service.predict_frame import FramePredictor
+from falsora_ai.engine_616.rolling import RollingScoreEngine
+from falsora_ai.contracts import EngineError
+
+predictor = FramePredictor()   # one process-wide instance, ~6.5 ms/frame CPU (measured, M7)
+
+# one RollingScoreEngine PER SESSION — its lifecycle is yours (module 6.13), not this adapter's
+rolling = RollingScoreEngine(session_id=session_id)
+
+def on_frame(frame_bytes: bytes, frame_index: int):
+    score = predictor.predict(frame_bytes, session_id=session_id, frame_index=frame_index)
+    if isinstance(score, EngineError):
+        return  # or surface to the client — decode/inference failure, not a verdict
+    state = rolling.push(score)   # -> RollingScoreState: rolling_authenticity, risk_state, alert_triggered
+```
+
+`FramePredictor.__init__` raises `FileNotFoundError` if the INT8 model hasn't been exported yet — run once per deployment:
+
+```bash
+python -m falsora_ai.optimization export
+python -m falsora_ai.optimization quantize
+```
+
+Both adapters return `EngineError` instead of raising for bad/undecodable input or an inference crash (see `contracts.py` design rule 2) — check `isinstance(result, EngineError)` before reading fields off the result.
+
+`FramePredictor` reports `face_detected=False` (not an error) when no face is found in a frame, with `probability_fake=0.5` — maximally uncertain, since there is no signal. `RollingScoreEngine.push` does **not** discount on `face_detected`, only on `quality_ok`, so a no-face frame pulls the rolling average toward 0.5 at full weight if pushed as-is. Set `quality_ok=False` (or skip pushing) for no-face frames if that's not the behaviour you want.
+
 ---
 
 ## Running the data pipeline (M1)
@@ -100,7 +151,7 @@ falsora_ai/
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ✅ **Done** — `ExplanationEngine` (Grad-CAM/Grad-CAM++), 6 tests passing |
 | M7 | — | ONNX export, INT8 quantization, measured latency | ✅ **Done** — measured onnx_int8 mean 6.5 ms/frame CPU (scope claimed 8–12 ms), 10 tests passing |
 | M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
-| M9 | — | Service adapters + integration guide | ⬜ |
+| M9 | — | Service adapters + integration guide | ✅ **Done** — `StaticPredictor`/`FramePredictor`, 11 tests passing |
 | M10 | — | Final metrics, model card, scope-document corrections | ⬜ |
 
 M8 depends only on M0, so module 6.16 can be built in parallel if GPU access slips.
