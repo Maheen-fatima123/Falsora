@@ -98,7 +98,7 @@ falsora_ai/
 | M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ✅ **Done** — test image_auc=0.878 (accuracy=0.803), val image_auc=0.882 (accuracy=0.804) |
 | M5 | 6.6 | Fused engine emitting `ForgeryResult` | ✅ **Done** — `ForgeryEngine` runs both branches, 6 tests passing |
 | M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ✅ **Done** — `ExplanationEngine` (Grad-CAM/Grad-CAM++), 6 tests passing |
-| M7 | — | ONNX export, INT8 quantization, measured latency | ⬜ |
+| M7 | — | ONNX export, INT8 quantization, measured latency | ✅ **Done** — measured onnx_int8 mean 6.5 ms/frame CPU (scope claimed 8–12 ms), 10 tests passing |
 | M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
 | M9 | — | Service adapters + integration guide | ⬜ |
 | M10 | — | Final metrics, model card, scope-document corrections | ⬜ |
@@ -138,4 +138,4 @@ Frame budget: **80,400** training crops from 7,200 FF++/DFD videos, balanced to 
 
 ## Known deviations from the submitted scope document
 
-Listed in full in `ENGINEERING_PLAN.md` section 6. Summary: NIST Nimble was not obtained; Celeb-DF v2 is used but undeclared in Section 8; Table 5 still assigns metadata analysis to Maheen after the division changed; and the "8–12 ms" latency figure in Section 5.1 is currently unverified and will be replaced with a measured number in M7.
+Listed in full in `ENGINEERING_PLAN.md` section 6. Summary: NIST Nimble was not obtained; Celeb-DF v2 is used but undeclared in Section 8; Table 5 still assigns metadata analysis to Maheen after the division changed; and the "8–12 ms" latency figure in Section 5.1 was unverified — M7 measured it at **6.5 ms mean** (ONNX INT8, CPU, single frame at 224×224); Section 5.1 should be updated to the measured number. Note the INT8 model only has its linear head quantized, not the convolutional backbone — see `falsora_ai/optimization/quantize.py`'s module docstring for why (onnxruntime's CPU build has no `ConvInteger` kernel on this platform).

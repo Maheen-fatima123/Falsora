@@ -29,11 +29,12 @@ import pytest
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
 
-def ml_requirements() -> dict[str, str]:
-    """Map package name → version specifier from the ``[ml]`` extra."""
+def requirements_for(extra: str) -> dict[str, str]:
+    """Map package name → version specifier from the named
+    ``[project.optional-dependencies]`` extra."""
     text = PYPROJECT.read_text(encoding="utf-8")
-    block = re.search(r"^ml = \[(.*?)^\]", text, re.MULTILINE | re.DOTALL)
-    assert block, "Could not locate the [ml] extra in pyproject.toml"
+    block = re.search(rf"^{re.escape(extra)} = \[(.*?)^\]", text, re.MULTILINE | re.DOTALL)
+    assert block, f"Could not locate the [{extra}] extra in pyproject.toml"
 
     out: dict[str, str] = {}
     for entry in re.findall(r'"([^"]+)"', block.group(1)):
@@ -42,9 +43,19 @@ def ml_requirements() -> dict[str, str]:
     return out
 
 
+def ml_requirements() -> dict[str, str]:
+    """Map package name → version specifier from the ``[ml]`` extra."""
+    return requirements_for("ml")
+
+
 @pytest.fixture(scope="module")
 def requirements() -> dict[str, str]:
     return ml_requirements()
+
+
+@pytest.fixture(scope="module")
+def optimize_requirements() -> dict[str, str]:
+    return requirements_for("optimize")
 
 
 class TestPinsParse:
@@ -99,6 +110,29 @@ class TestOpenCVCompatibility:
         Nothing in this pipeline needs the GUI build.
         """
         assert "opencv-python" not in requirements
+
+
+class TestOptimizeExtraNumpyPin:
+    """A second, real occurrence of the same failure mode.
+
+    ``pip install -e ".[optimize]"`` pulls in ``onnx``, which depends on
+    ``ml_dtypes``; since ``ml_dtypes`` 0.6 that package requires
+    ``numpy>=2``, so installing ``optimize`` alone — or after ``[ml]`` — silently
+    upgraded numpy from 1.26 to 2.4 and broke ``import torch`` exactly as
+    described above, just triggered by a different extra. ``[optimize]``
+    re-pins numpy for this reason; this test keeps that pin from being
+    quietly dropped later.
+    """
+
+    def test_optimize_extra_also_caps_numpy_below_2(
+        self, optimize_requirements: dict[str, str]
+    ) -> None:
+        assert "numpy" in optimize_requirements, (
+            "[optimize] must pin numpy itself — onnx's ml_dtypes dependency "
+            "requires numpy>=2 and will silently upgrade it otherwise, "
+            "breaking torch."
+        )
+        assert "<2" in optimize_requirements["numpy"]
 
 
 class TestCoreStaysLightweight:
