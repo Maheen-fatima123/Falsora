@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_connection
 from modules.trust_engine import calculate_trust_score
 from modules.orchestration import update_case_status, assign_reviewer, get_cases_for_reviewer
+from modules.analytics import get_dashboard_stats
+from modules.notifications import get_user_notifications, mark_as_read, notify_case_submitted, notify_high_risk_live
 
 app = FastAPI()
 
@@ -51,3 +53,22 @@ def assign_case(case_id: str, data: dict):
 @app.get("/api/reviewer/{reviewer_id}/cases")
 def reviewer_cases(reviewer_id: int):
     return get_cases_for_reviewer(reviewer_id)
+
+@app.get("/api/analytics/dashboard")
+def dashboard_stats():
+    return get_dashboard_stats()
+
+
+@app.get("/api/notifications/{user_id}")
+def get_notifications(user_id: int):
+    return get_user_notifications(user_id)
+
+@app.post("/api/notifications/{notification_id}/read")
+def read_notification(notification_id: int):
+    mark_as_read(notification_id)
+    return {"success": True}
+
+@app.post("/api/cases/{case_id}/notify-reviewer")
+def notify_reviewer(case_id: str, data: dict):
+    notify_case_submitted(case_id, data["reviewer_id"])
+    return {"success": True}
