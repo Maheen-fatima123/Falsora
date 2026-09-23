@@ -1,0 +1,35 @@
+name: Frontend CI
+
+# Scoped to frontend/ so it does not run on AI engine, core-api, or
+# decision-engine changes — mirrors the scoping convention in
+# ai-engine-ci.yml.
+on:
+  push:
+    branches: ["main", "integration"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+jobs:
+  build:
+    name: Build (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.13" # pinned to match frontend/package.json's packageManager
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        working-directory: ./frontend
+        run: bun run build
