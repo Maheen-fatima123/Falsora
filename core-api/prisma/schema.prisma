@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Auth & RBAC (6.1)
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  roleId        String?   @map("role_id")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  role          Role?     @relation(fields: [roleId], references: [id])
+  cases         Case[]    @relation("CreatedCases")
+  assignedCases Case[]    @relation("CaseReviewer")
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// -----------------------------------------------------------------------------
+// Case Management & Audit Trail (6.3)
+// -----------------------------------------------------------------------------
+
+model Case {
+  id          String       @id @default(uuid())
+  title       String
+  createdBy   String?      @map("created_by")
+  status      String       @default("Analyzing") // Analyzing, Flagged, Verified, Archived
+  trustScore  Float?       @map("trust_score")   // 0.0 – 1.0 from decision-engine
+  riskLevel   String?      @map("risk_level")    // Authentic | Uncertain | High-Risk | Pending
+  assignedTo  String?      @map("assigned_to")   // FK to User.id (reviewer)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  closedAt    DateTime?    @map("closed_at")
+  priority    String?      @default("Medium")
+  description String?
+  format      String?
+  reporterId  String?      @map("reporter_id")
+
+  author            User?        @relation("CreatedCases", fields: [createdBy], references: [id])
+  assignedReviewer  User?        @relation("CaseReviewer", fields: [assignedTo], references: [id])
+  auditLogs         AuditLog[]
+  mediaAssets       MediaAsset[]
+  verdicts          Verdict[]
+  jobs              VerificationJob[]
+  reports           Report[]
+  streamSessions    StreamSession[]
+
+  @@map("cases")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  caseId       String   @map("case_id")
+  userId       String   @map("user_id")
+  action       String
+  metadataJson Json?    @map("metadata_json")
+  previousHash String?  @map("previous_hash")
+  hash         String?
+  timestamp    DateTime @default(now())
+
+  caseRef      Case     @relation(fields: [caseId], references: [id])
+  userRef      User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Media Processing (6.2)
+// -----------------------------------------------------------------------------
+
+model MediaAsset {
+  id               String   @id @default(uuid())
+  caseId           String   @map("case_id")
+  uploadedBy       String?  @map("uploaded_by")
+  fileType         String   @map("file_type")
+  storageUrl       String   @map("storage_url")
+  validationStatus String   @map("validation_status") // PENDING, VALIDATED, REJECTED
+  durationSec      Float?   @map("duration_sec")
+  resolution       String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  caseRef          Case               @relation(fields: [caseId], references: [id])
+  fingerprints     MediaFingerprint[]
+  sourceMetadata   SourceMetadata?
+  forgeryResults   ForgeryResult[]
+  verdicts         Verdict[]
+  jobs             VerificationJob[]
+
+  @@map("media_assets")
+}
+
+// -----------------------------------------------------------------------------
+// Fingerprinting & Dedup (6.4)
+// -----------------------------------------------------------------------------
+
+model MediaFingerprint {
+  id               String   @id @default(uuid())
+  mediaId          String   @map("media_id")
+  sha256           String?
+  phash            String?
+  dhash            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  mediaRef         MediaAsset @relation(fields: [mediaId], references: [id])
+
+  @@map("media_fingerprints")
+}
+
+model DuplicateMatch {
+  id              String @id @default(uuid())
+  mediaIdA        String @map("media_id_a")
+  mediaIdB        String @map("media_id_b")
+  similarityScore Float  @map("similarity_score")
+
+  @@map("duplicate_matches")
+}
+
+// -----------------------------------------------------------------------------
+// Source Integrity (6.5)
+// -----------------------------------------------------------------------------
+
+model SourceMetadata {
+  id                String   @id @default(uuid())
+  mediaId           String   @unique @map("media_id")
+  exifJson          Json?    @map("exif_json")
+  c2paSignature     String?  @map("c2pa_signature")
+  gpsData           Json?    @map("gps_data")
+  deviceFingerprint String?  @map("device_fingerprint")
+  integrityScore    Float?   @map("integrity_score")
+
+  mediaRef          MediaAsset @relation(fields: [mediaId], references: [id])
+
+  @@map("source_metadata")
+}
+
+// -----------------------------------------------------------------------------
+// Forgery Detection (6.6) & Interpretability (6.7)
+// -----------------------------------------------------------------------------
+
+model ForgeryResult {
+  id               String   @id @default(uuid())
+  mediaId          String   @map("media_id")
+  modelName        String   @map("model_name")
+  confidenceScore  Float    @map("confidence_score")
+  manipulationType String?  @map("manipulation_type")
+  rawOutputJson    Json?    @map("raw_output_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  mediaRef         MediaAsset       @relation(fields: [mediaId], references: [id])
+  evidenceVisuals  EvidenceVisual[]
+
+  @@map("forgery_results")
+}
+
+model EvidenceVisual {
+  id               String @id @default(uuid())
+  forgeryResultId  String @map("forgery_result_id")
+  heatmapUrl       String @map("heatmap_url")
+  explanationText  String @map("explanation_text")
+
+  forgeryResult    ForgeryResult @relation(fields: [forgeryResultId], references: [id])
+
+  @@map("evidence_visuals")
+}
+
+// -----------------------------------------------------------------------------
+// Decision Intelligence (6.8) & Verification Orchestration (6.9)
+// -----------------------------------------------------------------------------
+
+model Verdict {
+  id            String   @id @default(uuid())
+  caseId        String   @map("case_id")
+  mediaId       String   @map("media_id")
+  finalVerdict  String   @map("final_verdict") // GENUINE, MANIPULATED, INCONCLUSIVE
+  confidence    Float
+  ruleTraceJson Json?    @map("rule_trace_json")
+  decidedAt     DateTime @default(now()) @map("decided_at")
+
+  caseRef       Case       @relation(fields: [caseId], references: [id])
+  mediaRef      MediaAsset @relation(fields: [mediaId], references: [id])
+
+  @@map("verdicts")
+}
+
+model VerificationJob {
+  id        String   @id @default(uuid())
+  caseId    String   @map("case_id")
+  mediaId   String   @map("media_id")
+  status    String // PENDING, PROCESSING, COMPLETED, FAILED
+  stage     String // UPLOAD, FINGERPRINT, INTEGRITY, FORGERY, DECISION
+  errorLog  String?  @map("error_log")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  caseRef   Case       @relation(fields: [caseId], references: [id])
+  mediaRef  MediaAsset @relation(fields: [mediaId], references: [id])
+
+  @@map("verification_jobs")
+}
+
+// -----------------------------------------------------------------------------
+// Forensic Report (6.10)
+// -----------------------------------------------------------------------------
+
+model Report {
+  id          String   @id @default(uuid())
+  caseId      String   @map("case_id")
+  generatedBy String   @map("generated_by")
+  pdfUrl      String   @map("pdf_url")
+  generatedAt DateTime @default(now()) @map("generated_at")
+
+  caseRef     Case     @relation(fields: [caseId], references: [id])
+
+  @@map("reports")
+}
+
+// -----------------------------------------------------------------------------
+// Reporting & Analytics (6.11)
+// -----------------------------------------------------------------------------
+
+model AnalyticsSnapshot {
+  id         String   @id @default(uuid())
+  metricName String   @map("metric_name")
+  value      Float
+  period     String // DAILY, WEEKLY, MONTHLY
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("analytics_snapshots")
+}
+
+// -----------------------------------------------------------------------------
+// Notifications (6.12)
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  message   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userRef   User     @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// Live Streaming (6.13, 6.14, 6.15, 6.16)
+// -----------------------------------------------------------------------------
+
+model StreamSession {
+  id        String    @id @default(uuid())
+  caseId    String    @map("case_id")
+  hostId    String    @map("host_id")
+  status    String // ACTIVE, ENDED, ERROR
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+
+  caseRef           Case                 @relation(fields: [caseId], references: [id])
+  frames            StreamFrame[]
+  qualityLogs       StreamQualityLog[]
+  rollingScores     RollingScore[]
+
+  @@map("stream_sessions")
+}
+
+model StreamFrame {
+  id           String   @id @default(uuid())
+  sessionId    String   @map("session_id")
+  frameTs      Float    @map("frame_ts")
+  forgeryScore Float?   @map("forgery_score")
+  bufferIndex  Int?     @map("buffer_index")
+
+  sessionRef   StreamSession @relation(fields: [sessionId], references: [id])
+
+  @@map("stream_frames")
+}
+
+model StreamQualityLog {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  bitrate    Float?
+  packetLoss Float?   @map("packet_loss")
+  latencyMs  Float?   @map("latency_ms")
+  timestamp  DateTime @default(now())
+
+  sessionRef StreamSession @relation(fields: [sessionId], references: [id])
+
+  @@map("stream_quality_logs")
+}
+
+model RollingScore {
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  windowStart Float    @map("window_start")
+  windowEnd   Float    @map("window_end")
+  avgScore    Float    @map("avg_score")
+  flagged     Boolean  @default(false)
+
+  sessionRef  StreamSession @relation(fields: [sessionId], references: [id])
+
+  @@map("rolling_scores")
+}
