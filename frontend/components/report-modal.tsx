@@ -59,6 +59,11 @@ interface ForensicReportModalProps {
     fileName?: string;
     hash?: string;
     sha256?: string;
+    format?: string;
+    resolution?: string;
+    deviceFingerprint?: string;
+    isTampered?: boolean;
+    softwareFlag?: string;
   };
 }
 
