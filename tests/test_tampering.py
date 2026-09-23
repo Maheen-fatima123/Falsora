@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from falsora_ai.config import TamperingConfig
+from falsora_ai.data.transforms import resize_stacked_input
 from falsora_ai.engine_66.tampering.ela import compute_ela_map, ela_score
 from falsora_ai.engine_66.tampering.model import (
     IN_CHANNELS,
@@ -94,6 +95,17 @@ class TestBuildModelInput:
         image = noisy_image()
         stacked = build_model_input(image)
         np.testing.assert_allclose(stacked[..., :3], image.astype(np.float32) / 255.0)
+
+    def test_downsizing_the_5_channel_stack_does_not_crash(self) -> None:
+        """Regression test: cv2's INTER_AREA decimation fast path only
+        supports up to 4 channels when downsizing (``cn <= 4`` assertion),
+        but every real CASIA image is 5-channel here. Every real image in
+        the dataset is larger than ``input_size``, so this path runs on
+        every training/eval batch — see ``resize_stacked_input``."""
+        image = noisy_image(size=256)
+        stacked = build_model_input(image)
+        resized = resize_stacked_input(stacked, size=224)
+        assert resized.shape == (224, 224, IN_CHANNELS)
 
 
 class TestTamperingCNN:

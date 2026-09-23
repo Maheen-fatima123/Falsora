@@ -45,6 +45,57 @@ from falsora_ai.contracts import (
 
 Contracts are versioned via `SCHEMA_VERSION`. Any breaking change is announced before it merges.
 
+### Calling the engine — `falsora_ai/service/` (M9)
+
+Don't import `engine_66`/`engine_67`/`optimization` directly from the backend. Two adapter classes exist specifically so the backend never has to: construct each **once per process** (e.g. FastAPI `lifespan`), then call its `predict()` per request/frame.
+
+**REST upload path — `StaticPredictor`** (`falsora_ai/service/predict_static.py`):
+
+```python
+from falsora_ai.service.predict_static import StaticPredictor
+from falsora_ai.contracts import EngineError
+
+predictor = StaticPredictor()   # loads both checkpoints once
+
+@app.post("/api/analyze")
+def analyze(file: UploadFile):
+    result, explanation = predictor.predict(file.file.read(), case_id=case_id)
+    if isinstance(result, EngineError):
+        raise HTTPException(status_code=422, detail=result.message)
+    # result.deepfake.probability_fake, result.tampering.probability_tampered, ...
+    # explanation is None if explain=False, no face found, or Grad-CAM itself failed
+```
+
+**WebSocket live path — `FramePredictor`** (`falsora_ai/service/predict_frame.py`):
+
+```python
+from falsora_ai.service.predict_frame import FramePredictor
+from falsora_ai.engine_616.rolling import RollingScoreEngine
+from falsora_ai.contracts import EngineError
+
+predictor = FramePredictor()   # one process-wide instance, ~6.5 ms/frame CPU (measured, M7)
+
+# one RollingScoreEngine PER SESSION — its lifecycle is yours (module 6.13), not this adapter's
+rolling = RollingScoreEngine(session_id=session_id)
+
+def on_frame(frame_bytes: bytes, frame_index: int):
+    score = predictor.predict(frame_bytes, session_id=session_id, frame_index=frame_index)
+    if isinstance(score, EngineError):
+        return  # or surface to the client — decode/inference failure, not a verdict
+    state = rolling.push(score)   # -> RollingScoreState: rolling_authenticity, risk_state, alert_triggered
+```
+
+`FramePredictor.__init__` raises `FileNotFoundError` if the INT8 model hasn't been exported yet — run once per deployment:
+
+```bash
+python -m falsora_ai.optimization export
+python -m falsora_ai.optimization quantize
+```
+
+Both adapters return `EngineError` instead of raising for bad/undecodable input or an inference crash (see `contracts.py` design rule 2) — check `isinstance(result, EngineError)` before reading fields off the result.
+
+`FramePredictor` reports `face_detected=False` (not an error) when no face is found in a frame, with `probability_fake=0.5` — maximally uncertain, since there is no signal. `RollingScoreEngine.push` does **not** discount on `face_detected`, only on `quality_ok`, so a no-face frame pulls the rolling average toward 0.5 at full weight if pushed as-is. Set `quality_ok=False` (or skip pushing) for no-face frames if that's not the behaviour you want.
+
 ---
 
 ## Running the data pipeline (M1)
@@ -93,15 +144,15 @@ falsora_ai/
 |---|---|---|---|
 | M0 | — | Repo hygiene, package skeleton, contracts, config, CI | ✅ **Done** — 63 tests passing |
 | M1 | — | Manifest, identity-disjoint splits, resumable face extraction | ✅ **Done** — 179 tests passing |
-| M2 | — | Torch Dataset, transforms, dataloaders | ⬜ |
-| M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ⬜ |
-| M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ⬜ |
-| M5 | 6.6 | Fused engine emitting `ForgeryResult` | ⬜ |
-| M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ⬜ |
-| M7 | — | ONNX export, INT8 quantization, measured latency | ⬜ |
+| M2 | — | Torch Dataset, transforms, dataloaders | ✅ **Done** — 20 tests passing |
+| M3 | 6.6a | EfficientNet deepfake model + frame/video AUC + cross-dataset eval | ✅ **Done** — test video_auc=0.987 (accuracy=0.956), heldout/Celeb-DF video_auc=0.870 (accuracy=0.799) |
+| M4 | 6.6b | CASIA v2.0 tampering branch (ELA + residual + classifier) | ✅ **Done** — test image_auc=0.878 (accuracy=0.803), val image_auc=0.882 (accuracy=0.804) |
+| M5 | 6.6 | Fused engine emitting `ForgeryResult` | ✅ **Done** — `ForgeryEngine` runs both branches, 6 tests passing |
+| M6 | 6.7 | Grad-CAM heatmaps, evidence persistence | ✅ **Done** — `ExplanationEngine` (Grad-CAM/Grad-CAM++), 6 tests passing |
+| M7 | — | ONNX export, INT8 quantization, measured latency | ✅ **Done** — measured onnx_int8 mean 6.5 ms/frame CPU (scope claimed 8–12 ms), 10 tests passing |
 | M8 | 6.16 | Frame buffer, rolling score, HIGH-RISK alerts | ✅ **Done** — 223 tests passing |
-| M9 | — | Service adapters + integration guide | ⬜ |
-| M10 | — | Final metrics, model card, scope-document corrections | ⬜ |
+| M9 | — | Service adapters + integration guide | ✅ **Done** — `StaticPredictor`/`FramePredictor`, 11 tests passing |
+| M10 | — | Final metrics, model card, scope-document corrections | ✅ **Done** — see `MODEL_CARD.md`, table rows above corrected, scope corrections below |
 
 M8 depends only on M0, so module 6.16 can be built in parallel if GPU access slips.
 
@@ -171,4 +222,12 @@ Frame budget: **80,400** training crops from 7,200 FF++/DFD videos, balanced to 
 
 ## Known deviations from the submitted scope document
 
-Listed in full in `ENGINEERING_PLAN.md` section 6. Summary: NIST Nimble was not obtained; Celeb-DF v2 is used but undeclared in Section 8; Table 5 still assigns metadata analysis to Maheen after the division changed; and the "8–12 ms" latency figure in Section 5.1 is currently unverified and will be replaced with a measured number in M7.
+Listed in full in `ENGINEERING_PLAN.md` section 6 — all five corrections below are now resolved or reflected here (M10):
+
+1. **Table 5** assigns Metadata Analysis / AI Integration (6.5) to Maheen. The division has since moved 6.5 to Ujala; Table 5 needs regenerating from the current division before final submission.
+2. **Section 8.2 (NIST Nimble)** — dataset was not obtained. Should be reworded as future work, or removed.
+3. **Section 8 / Table 2** — Celeb-DF v2 is used (held-out cross-dataset benchmark, see "Verified dataset notes" below) but was never declared in the submitted document. Add it, with its role stated as cross-dataset generalisation testing only, not training.
+4. **Section 8.3** claims "approximately 1 million frames." The actual pipeline samples **96,117 face crops** (58,825 train / 9,317 val / 11,485 test / 16,490 held-out Celeb-DF — see `MODEL_CARD.md`), not all frames of all videos. An earlier "extract everything" plan would have produced ~137,000 crops from 13,729 videos; that plan was deliberately trimmed to 7,718 videos (notably, only the 518 official Celeb-DF test-list videos, not all ~6,500) to keep evaluation identity-disjoint and trustworthy — see `ENGINEERING_PLAN.md` section 2.1. Both the "~1 million" and "~137,000" figures are stale; state the sampling strategy and the actual ~96,000 figure instead.
+5. **Section 5.1** claims "~8–12 ms inference latency per frame on standard CPU." This was unverified when written — M7 measured it at **6.5 ms mean** (ONNX INT8, CPU, single frame at 224×224); Section 5.1 should be updated to the measured number. Note the INT8 model only has its linear head quantized, not the convolutional backbone — see `falsora_ai/optimization/quantize.py`'s module docstring for why (onnxruntime's CPU build has no `ConvInteger` kernel on this platform).
+
+Final trained metrics and per-module numbers are consolidated in **[`MODEL_CARD.md`](MODEL_CARD.md)**.

@@ -52,12 +52,23 @@ ml = [
 optimize = [
     "onnx>=1.15",
     "onnxruntime>=1.17",
+    # onnx pulls in ml_dtypes, which since 0.6 depends on numpy>=2 and will
+    # silently upgrade it on install — breaking torch, which is compiled
+    # against numpy 1.x (see the numpy pin and its comment in the [ml]
+    # extra above). Re-pin here so `pip install -e ".[ml,optimize]"` in
+    # either order still lands on a numpy torch can actually load.
+    "numpy>=1.26,<2",
 ]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "ruff>=0.4",
     "mypy>=1.9",
+]
+# Local demo UI only (demo_ui/) — exercises what's built so far for
+# supervisor sign-off. Never imported by falsora_ai itself.
+demo = [
+    "flask>=3.0",
 ]
 
 [tool.setuptools.packages.find]
