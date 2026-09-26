@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { PrismaClient } from "@prisma/client";
 import { appendAuditLog } from "../utils/audit";
 import { getTrustScore, validateStatusTransition } from "../services/decisionEngine";
+import { analyzeForgery } from "../services/aiEngine";
 
 const router = Router();
 
@@ -198,6 +199,10 @@ router.get("/:id", async (req: Request, res: Response) => {
           include: {
             fingerprints: true,
             sourceMetadata: true,
+            forgeryResults: {
+              include: { evidenceVisuals: true },
+              orderBy: { createdAt: "desc" },
+            },
           }
         }
       }
@@ -209,10 +214,18 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const asset = dbCase.mediaAssets[0];
     const sha256 = asset?.fingerprints[0]?.sha256 || "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    
+
     // Recompute integrity details from the raw EXIF to get the software flag
     const exifJson = asset?.sourceMetadata?.exifJson || null;
     const integrityAnalysis = analyzeSourceIntegrity(exifJson);
+
+    // §6.6/6.7: surface the real AI engine output (most recent forgery
+    // result for this asset), instead of placeholder percentages.
+    const forgeryResult = asset?.forgeryResults?.[0];
+    const rawOutput = (forgeryResult?.rawOutputJson as any) || null;
+    const deepfakeScore = rawOutput?.deepfake?.probability_fake ?? null;
+    const tamperingScore = rawOutput?.tampering?.probability_tampered ?? null;
+    const heatmapUrl = forgeryResult?.evidenceVisuals?.[0]?.heatmapUrl || null;
 
     return res.json({
       success: true,
@@ -232,6 +245,16 @@ router.get("/:id", async (req: Request, res: Response) => {
         integrityScore: asset?.sourceMetadata?.integrityScore || integrityAnalysis.integrityScore,
         softwareFlag: integrityAnalysis.softwareFlag,
         isTampered: integrityAnalysis.isTampered,
+        forgery: forgeryResult
+          ? {
+              modelName: forgeryResult.modelName,
+              confidenceScore: forgeryResult.confidenceScore,
+              manipulationType: forgeryResult.manipulationType,
+              deepfakeScore,
+              tamperingScore,
+              heatmapUrl,
+            }
+          : null,
       }
     });
   } catch (error) {
@@ -372,10 +395,11 @@ router.post("/upload", upload.single("media"), async (req: Request, res: Respons
     let exifData: any = null;
     let integrityAnalysis: any = null;
     let duplicateInfo: any = null;
+    let fileBuffer: Buffer | null = null;
 
     if (file) {
       try {
-        const fileBuffer = fs.readFileSync(file.path);
+        fileBuffer = fs.readFileSync(file.path);
         sha256Checksum = crypto.createHash("sha256").update(fileBuffer).digest("hex");
         
         if (file.mimetype.startsWith("image/")) {
@@ -541,8 +565,61 @@ router.post("/upload", upload.single("media"), async (req: Request, res: Respons
 
       setTimeout(async () => {
         try {
+          let forgeryScore = 0.0;
+          const mediaAssetId = createdCase.mediaAssets?.[0]?.id;
+
+          // §6.6/6.7: run the real AI engine on the uploaded image and
+          // persist its output before feeding the score into the decision
+          // engine below.
+          if (file && fileBuffer && mediaAssetId) {
+            const analysis = await analyzeForgery(
+              fileBuffer,
+              file.originalname,
+              file.mimetype,
+              createdCase.id
+            );
+
+            if (analysis?.forgery_result) {
+              const fr = analysis.forgery_result;
+              const deepfakeScore = fr.deepfake?.probability_fake ?? null;
+              const tamperingScore = fr.tampering?.probability_tampered ?? null;
+              forgeryScore = deepfakeScore ?? tamperingScore ?? 0.0;
+
+              const manipulationType =
+                deepfakeScore !== null && tamperingScore !== null
+                  ? (deepfakeScore >= tamperingScore ? "DEEPFAKE" : "TAMPERING")
+                  : deepfakeScore !== null
+                  ? "DEEPFAKE"
+                  : tamperingScore !== null
+                  ? "TAMPERING"
+                  : null;
+
+              const savedForgeryResult = await prisma.forgeryResult.create({
+                data: {
+                  mediaId: mediaAssetId,
+                  modelName: fr.deepfake?.model_name || fr.tampering?.model_name || "falsora_ai",
+                  confidenceScore: forgeryScore,
+                  manipulationType,
+                  rawOutputJson: fr as any,
+                },
+              });
+
+              if (analysis.explanation) {
+                await prisma.evidenceVisual.create({
+                  data: {
+                    forgeryResultId: savedForgeryResult.id,
+                    heatmapUrl: analysis.explanation.overlay_path,
+                    explanationText: `Grad-CAM (${analysis.explanation.method}) — target layer ${analysis.explanation.target_layer}`,
+                  },
+                });
+              }
+            } else {
+              console.warn("AI engine unreachable or returned no result — falling back to forgery_score: 0.0");
+            }
+          }
+
           const trustResult = await getTrustScore({
-            forgery_score: 0.0, // 0.0 until ai-engine is integrated
+            forgery_score: forgeryScore,
             exif_flags: exifFlags,
             fingerprint_match: !!duplicateInfo?.isDuplicate,
           });
