@@ -105,3 +105,12 @@ each other correctly.
   something to create a real case.
 - **Prisma "Environment variable not found: DATABASE_URL"** — you skipped
   the `.env` setup step in `core-api`.
+- **ai-engine `/health` shows `models_loaded: {"static": false}` or
+  `{"frame": false}`, or a request returns `503 model_unavailable`** —
+  the trained model checkpoints/ONNX files are gitignored (too large for
+  GitHub) so a fresh clone never has them. This is expected on a new
+  machine, not a bug — the service now starts and stays up in this
+  degraded mode instead of crashing entirely. Get the real
+  `checkpoints/` and `models/` files from Maheen and drop them in the
+  repo root, then restart ai-engine; `/health` should show both as
+  `true`.
