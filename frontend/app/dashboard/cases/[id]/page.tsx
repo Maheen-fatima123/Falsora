@@ -28,6 +28,43 @@ import {
   Loader2
 } from "lucide-react";
 
+/** Renders one AI Detection Breakdown row from a real 0.0-1.0 model score
+ * (or an N/A state when no signal exists for that branch). */
+function DetectionMeter({
+  label,
+  score,
+  naLabel = "N/A",
+}: {
+  label: string;
+  score: number | null | undefined;
+  naLabel?: string;
+}) {
+  const hasScore = typeof score === "number" && Number.isFinite(score);
+  const pct = hasScore ? Math.round(score * 1000) / 10 : 0;
+
+  const risk = !hasScore
+    ? { label: naLabel, color: "text-muted-foreground", bar: "bg-muted-foreground" }
+    : pct >= 70
+    ? { label: "High Risk", color: "text-red-500", bar: "bg-red-500" }
+    : pct >= 40
+    ? { label: "Medium Risk", color: "text-amber-500", bar: "bg-amber-500" }
+    : { label: "Low Risk", color: "text-emerald-500", bar: "bg-emerald-500" };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs">
+        <span className="font-medium">{label}</span>
+        <span className={cn("font-mono font-bold", risk.color)}>
+          {hasScore ? `${pct}% (${risk.label})` : risk.label}
+        </span>
+      </div>
+      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full", risk.bar)} style={{ width: `${hasScore ? pct : 0}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = (params?.id as string) || "CAS-142";
@@ -368,38 +405,26 @@ export default function CaseDetailPage() {
                 </div>
               ) : (
                 <>
-                  {/* Face Swap Meter */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-medium">Deepfake Face Swap</span>
-                      <span className="font-mono font-bold text-red-500">99.2% (High Risk)</span>
-                    </div>
-                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-red-500 rounded-full w-[99.2%]" />
-                    </div>
-                  </div>
+                  {/* Face Swap Meter — real EfficientNet-B0 deepfake score from ai-engine */}
+                  <DetectionMeter
+                    label="Deepfake Face Swap"
+                    score={caseDetails?.forgery?.deepfakeScore}
+                  />
 
-                  {/* Temporal Splicing Meter */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-medium">Frame Splicing & Editing</span>
-                      <span className="font-mono font-bold text-amber-500">87.4% (Medium Risk)</span>
-                    </div>
-                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-amber-500 rounded-full w-[87.4%]" />
-                    </div>
-                  </div>
+                  {/* Temporal Splicing Meter — real tampering/ELA score from ai-engine */}
+                  <DetectionMeter
+                    label="Frame Splicing & Editing"
+                    score={caseDetails?.forgery?.tamperingScore}
+                  />
 
-                  {/* Audio Cloning Meter */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-medium">Voice Cloning / Audio Gen</span>
-                      <span className="font-mono font-bold text-emerald-500">12.1% (Low Risk)</span>
-                    </div>
-                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500 rounded-full w-[12.1%]" />
-                    </div>
-                  </div>
+                  {/* No audio branch in the current pipeline — static image
+                      analysis only (deepfake + tampering), so this is
+                      surfaced as N/A rather than a fabricated number. */}
+                  <DetectionMeter
+                    label="Voice Cloning / Audio Gen"
+                    score={null}
+                    naLabel="N/A (image-only analysis)"
+                  />
                 </>
               )}
             </CardContent>
