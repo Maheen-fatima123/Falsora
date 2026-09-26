@@ -47,19 +47,52 @@ _predictors: dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Each predictor is constructed independently so a missing checkpoint
+    # for one (e.g. a teammate who doesn't have the ONNX file yet) doesn't
+    # take down the endpoint that only needs the other. Without this, a
+    # single FileNotFoundError from FramePredictor would fail the whole
+    # lifespan and uvicorn would never become healthy — including for
+    # /ai/forgery/analyze, which doesn't touch the ONNX model at all.
     logger.info("Loading StaticPredictor (deepfake + tampering + Grad-CAM)...")
-    # device="cpu" pinned deliberately: PyTorch's MPS backend has a known
-    # adaptive-pooling limitation ("input sizes must be divisible by output
-    # sizes") that surfaces on some face-crop sizes and is unrelated to
-    # engine_66/engine_67's own tested logic. CPU is also what M7's
-    # benchmark and the live ONNX path already target, so this keeps both
-    # predictors on the same, more portable device.
-    _predictors["static"] = StaticPredictor(device="cpu")
+    try:
+        # device="cpu" pinned deliberately: PyTorch's MPS backend has a known
+        # adaptive-pooling limitation ("input sizes must be divisible by output
+        # sizes") that surfaces on some face-crop sizes and is unrelated to
+        # engine_66/engine_67's own tested logic. CPU is also what M7's
+        # benchmark and the live ONNX path already target, so this keeps both
+        # predictors on the same, more portable device.
+        _predictors["static"] = StaticPredictor(device="cpu")
+    except FileNotFoundError as exc:
+        logger.warning("StaticPredictor unavailable — missing checkpoint(s): %s", exc)
+
     logger.info("Loading FramePredictor (quantized ONNX live model)...")
-    _predictors["frame"] = FramePredictor()
+    try:
+        _predictors["frame"] = FramePredictor()
+    except FileNotFoundError as exc:
+        logger.warning("FramePredictor unavailable — missing ONNX model: %s", exc)
+
+    if not _predictors:
+        logger.warning(
+            "AI engine starting with NO models loaded — every request will "
+            "return 503 until checkpoints/models are provided. See RUNNING.md."
+        )
     logger.info("AI engine ready.")
     yield
     _predictors.clear()
+
+
+def _require_predictor(name: str, label: str):
+    predictor = _predictors.get(name)
+    if predictor is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "model_unavailable",
+                "message": f"{label} is not loaded (missing model file on this machine). "
+                           "See RUNNING.md for how to obtain it.",
+            },
+        )
+    return predictor
 
 
 app = FastAPI(title="Falsora AI Engine", version="0.1.0", lifespan=lifespan)
@@ -88,8 +121,15 @@ def _engine_error_status(err: EngineError) -> int:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-engine"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "ai-engine",
+        "models_loaded": {
+            "static": "static" in _predictors,
+            "frame": "frame" in _predictors,
+        },
+    }
 
 
 @app.post("/ai/forgery/analyze")
@@ -102,7 +142,7 @@ async def analyze_forgery(
     directly (multipart) rather than a ``media_url`` — simpler and avoids
     this service needing its own credentials to fetch from core-api's
     storage."""
-    predictor: StaticPredictor = _predictors["static"]
+    predictor: StaticPredictor = _require_predictor("static", "StaticPredictor")
     image_bytes = await file.read()
 
     result, explanation = predictor.predict(image_bytes, case_id=case_id, explain=explain)
@@ -123,7 +163,7 @@ def score_frame(payload: FrameScoreRequest) -> dict[str, Any]:
     on the caller's side."""
     import base64
 
-    predictor: FramePredictor = _predictors["frame"]
+    predictor: FramePredictor = _require_predictor("frame", "FramePredictor")
 
     try:
         frame_bytes = base64.b64decode(payload.frame_data)
