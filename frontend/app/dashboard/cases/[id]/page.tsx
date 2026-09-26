@@ -17,16 +17,19 @@ import {
   Eye, 
   Layers, 
   Scan, 
-  Play, 
-  Pause, 
-  SkipBack, 
-  SkipForward, 
-  FileText, 
-  Cpu, 
-  CheckCircle2, 
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  FileText,
+  Cpu,
+  CheckCircle2,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Flame
 } from "lucide-react";
+
+const CORE_API_ORIGIN = "http://localhost:4000";
 
 /** Renders one AI Detection Breakdown row from a real 0.0-1.0 model score
  * (or an N/A state when no signal exists for that branch). */
@@ -70,7 +73,7 @@ export default function CaseDetailPage() {
   const caseId = (params?.id as string) || "CAS-142";
 
   const [caseDetails, setCaseDetails] = useState<any>(null);
-  const [activeViewMode, setActiveViewMode] = useState<"rgb" | "ela" | "bbox">("rgb");
+  const [activeViewMode, setActiveViewMode] = useState<"rgb" | "ela" | "bbox" | "gradcam">("rgb");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(142);
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -125,6 +128,14 @@ export default function CaseDetailPage() {
   const displayStatus = caseDetails?.status || "Analyzing";
   const displayHash = caseDetails?.sha256 || "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
   const displayDate = caseDetails?.date || new Date().toISOString().split("T")[0];
+
+  // §6.7: real Grad-CAM overlay from ai-engine, served by core-api at
+  // /gradcam/<file>.png. Only present when a face was detected and the
+  // deepfake branch ran — tampering-only results have no visual explanation
+  // (see falsora_ai.engine_67.explain's module docstring).
+  const gradcamUrl = caseDetails?.forgery?.heatmapUrl
+    ? `${CORE_API_ORIGIN}${caseDetails.forgery.heatmapUrl}`
+    : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -202,13 +213,21 @@ export default function CaseDetailPage() {
                 >
                   <Layers className="h-3.5 w-3.5 text-purple-400" /> Error Level Analysis (ELA)
                 </Button>
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   variant={activeViewMode === "bbox" ? "default" : "ghost"}
                   onClick={() => setActiveViewMode("bbox")}
                   className="gap-1.5 text-xs cursor-pointer"
                 >
                   <Scan className="h-3.5 w-3.5 text-emerald-400" /> Face Detection Boxes
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activeViewMode === "gradcam" ? "default" : "ghost"}
+                  onClick={() => setActiveViewMode("gradcam")}
+                  className="gap-1.5 text-xs cursor-pointer"
+                >
+                  <Flame className="h-3.5 w-3.5 text-orange-400" /> Grad-CAM Heatmap
                 </Button>
               </div>
 
@@ -217,16 +236,36 @@ export default function CaseDetailPage() {
 
             {/* Simulated Interactive Image/Frame Viewport */}
             <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden group">
-              {/* Actual Media Image */}
-              {caseDetails?.mediaUrl && (
-                <img 
-                  src={`http://localhost:4000${caseDetails.mediaUrl}`}
+              {/* Actual Media Image (rgb / ela / bbox modes share the same source frame) */}
+              {activeViewMode !== "gradcam" && caseDetails?.mediaUrl && (
+                <img
+                  src={`${CORE_API_ORIGIN}${caseDetails.mediaUrl}`}
                   className={cn(
                     "absolute inset-0 w-full h-full object-contain z-10 transition-all duration-500",
                     caseDetails?.status === "Analyzing" && "opacity-60 blur-[1px]"
-                  )} 
-                  alt="Case Evidence" 
+                  )}
+                  alt="Case Evidence"
                 />
+              )}
+
+              {/* Real Grad-CAM overlay (module 6.7) — actual model output, not simulated */}
+              {activeViewMode === "gradcam" && (
+                gradcamUrl ? (
+                  <img
+                    src={gradcamUrl}
+                    className="absolute inset-0 w-full h-full object-contain z-10"
+                    alt="Grad-CAM attention heatmap"
+                  />
+                ) : (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-center px-6">
+                    <Flame className="h-6 w-6 text-muted-foreground/60" />
+                    <p className="text-slate-400 text-sm max-w-sm">
+                      {caseDetails?.status === "Analyzing"
+                        ? "Grad-CAM will appear here once analysis completes."
+                        : "No Grad-CAM available for this result — the deepfake branch only runs when a face is detected, and Grad-CAM explains that branch only (tampering-only results have no visual explanation)."}
+                    </p>
+                  </div>
+                )
               )}
 
               {/* Analyzing Overlay */}

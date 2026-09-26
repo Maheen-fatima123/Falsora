@@ -34,6 +34,11 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// Grad-CAM overlays (module 6.7) are written by the ai-engine process to
+// <repo root>/gradcam (falsora_ai.config.Config.paths.gradcam), not under
+// core-api/uploads — serve that directory directly so heatmapUrl values
+// saved by cases.ts (/gradcam/<file>.png) actually resolve.
+app.use('/gradcam', express.static(path.join(__dirname, '..', '..', 'gradcam')));
 
 import { prisma } from './db';
 

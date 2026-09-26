@@ -583,16 +583,24 @@ router.post("/upload", upload.single("media"), async (req: Request, res: Respons
               const fr = analysis.forgery_result;
               const deepfakeScore = fr.deepfake?.probability_fake ?? null;
               const tamperingScore = fr.tampering?.probability_tampered ?? null;
-              forgeryScore = deepfakeScore ?? tamperingScore ?? 0.0;
 
-              const manipulationType =
-                deepfakeScore !== null && tamperingScore !== null
-                  ? (deepfakeScore >= tamperingScore ? "DEEPFAKE" : "TAMPERING")
-                  : deepfakeScore !== null
-                  ? "DEEPFAKE"
-                  : tamperingScore !== null
-                  ? "TAMPERING"
-                  : null;
+              // §6.6: both branches run independently and either signal alone
+              // can indicate forgery (a face-swap with no splicing, or a
+              // spliced photo with no face) — so the score fed to the
+              // decision engine, and the label describing it, must both come
+              // from whichever branch is more suspicious, not "deepfake if
+              // present, else tampering".
+              let manipulationType: string | null = null;
+              if (deepfakeScore !== null && tamperingScore !== null) {
+                manipulationType = deepfakeScore >= tamperingScore ? "DEEPFAKE" : "TAMPERING";
+                forgeryScore = deepfakeScore >= tamperingScore ? deepfakeScore : tamperingScore;
+              } else if (deepfakeScore !== null) {
+                manipulationType = "DEEPFAKE";
+                forgeryScore = deepfakeScore;
+              } else if (tamperingScore !== null) {
+                manipulationType = "TAMPERING";
+                forgeryScore = tamperingScore;
+              }
 
               const savedForgeryResult = await prisma.forgeryResult.create({
                 data: {
@@ -605,10 +613,16 @@ router.post("/upload", upload.single("media"), async (req: Request, res: Respons
               });
 
               if (analysis.explanation) {
+                // The AI engine returns an absolute filesystem path
+                // (Config.paths.gradcam) — not servable as-is, and not
+                // portable across machines (e.g. a teammate's E:\... path).
+                // Store only the filename; core-api serves the gradcam
+                // directory itself at /gradcam (see index.ts).
+                const heatmapFilename = path.basename(analysis.explanation.overlay_path);
                 await prisma.evidenceVisual.create({
                   data: {
                     forgeryResultId: savedForgeryResult.id,
-                    heatmapUrl: analysis.explanation.overlay_path,
+                    heatmapUrl: `/gradcam/${heatmapFilename}`,
                     explanationText: `Grad-CAM (${analysis.explanation.method}) — target layer ${analysis.explanation.target_layer}`,
                   },
                 });
