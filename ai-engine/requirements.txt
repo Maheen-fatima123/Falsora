@@ -1,0 +1,9 @@
+# AI engine HTTP service — extra deps on top of falsora_ai's own
+# ["ml","optimize"] extras (torch, onnxruntime, etc. — see pyproject.toml).
+# Install into the same venv falsora_ai is installed in:
+#   pip install -e ".[ml,optimize]"
+#   pip install -r ai-engine/requirements.txt
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
