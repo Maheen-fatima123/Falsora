@@ -6,10 +6,10 @@ DB reads/writes for case status are handled exclusively by core-api (Prisma).
 # Valid case status transitions in the Falsora workflow.
 # Matches the status vocabulary in core-api/prisma/schema.prisma.
 VALID_TRANSITIONS: dict[str, list[str]] = {
-    "Analyzing": ["Flagged", "Verified"],
-    "Flagged":   ["Verified", "Analyzing"],
-    "Verified":  [],          # Terminal state — no further transitions
-    "Archived":  [],          # Terminal state
+    "Analyzing": ["Flagged", "Verified", "Archived"],
+    "Flagged":   ["Verified", "Analyzing", "Archived"],
+    "Verified":  ["Archived"],
+    "Archived":  ["Flagged", "Verified"],  # Un-archive back into active workflow
 }
 
 
@@ -30,6 +30,10 @@ def validate_status_transition(current_status: str, new_status: str) -> dict:
             "valid": False,
             "error": f"Unknown current status: '{current_status}'",
         }
+
+    # Idempotent: already at target status is fine (e.g. double-click Archive).
+    if current_status == new_status:
+        return {"valid": True, "new_status": new_status}
 
     allowed = VALID_TRANSITIONS[current_status]
 

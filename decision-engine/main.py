@@ -26,6 +26,8 @@ from modules.notifications import (
     format_case_assigned,
     format_case_flagged,
     format_case_verified,
+    format_analysis_complete,
+    format_analysis_failed,
 )
 
 app = FastAPI(
@@ -53,6 +55,8 @@ class TrustScoreRequest(BaseModel):
     forgery_score: float
     exif_flags: Optional[List[str]] = []
     fingerprint_match: Optional[bool] = False
+    integrity_score: Optional[float] = None
+    fingerprint_kind: Optional[str] = None  # "exact" | "near"
 
 
 class RollingTrustRequest(BaseModel):
@@ -91,6 +95,8 @@ def trust_score(data: TrustScoreRequest):
         forgery_score=data.forgery_score,
         exif_flags=data.exif_flags or [],
         fingerprint_match=data.fingerprint_match or False,
+        integrity_score=data.integrity_score,
+        fingerprint_kind=data.fingerprint_kind,
     )
 
 
@@ -130,5 +136,9 @@ def format_notification(data: NotificationFormatRequest):
         return format_case_flagged(data.case_id, data.case_title, data.extra or "High-Risk")
     elif event == "CASE_VERIFIED":
         return format_case_verified(data.case_id, data.case_title, data.extra or "INCONCLUSIVE")
+    elif event == "ANALYSIS_COMPLETE":
+        return format_analysis_complete(data.case_id, data.case_title, data.extra or "")
+    elif event == "ANALYSIS_FAILED":
+        return format_analysis_failed(data.case_id, data.case_title, data.extra or "")
     else:
         raise HTTPException(status_code=400, detail=f"Unknown event type: '{data.event}'")
