@@ -53,6 +53,9 @@ export default function SettingsPage() {
   const [deleteConfirmUser, setDeleteConfirmUser] = React.useState<any | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [actionLoadingId, setActionLoadingId] = React.useState<string | null>(null);
+  const [activity, setActivity] = React.useState<any[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
+  const [activityError, setActivityError] = React.useState("");
 
   const fetchAccounts = React.useCallback(async () => {
     setIsLoadingUsers(true);
@@ -69,9 +72,43 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchActivity = React.useCallback(async () => {
+    setIsLoadingActivity(true);
+    setActivityError("");
+    try {
+      const res = await fetchApi("http://localhost:4000/api/auth/activity", {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setActivity(data.data);
+      } else {
+        setActivity([]);
+        setActivityError(data.error || "Could not load auth activity");
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch auth activity", err);
+      setActivityError(err.message || "Could not load auth activity");
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     fetchAccounts();
-  }, [fetchAccounts]);
+    fetchActivity();
+  }, [fetchAccounts, fetchActivity]);
+
+  // Re-fetch when tab becomes visible (e.g. after logging in as another role in another tab)
+  React.useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void fetchActivity();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchActivity]);
 
   const handleResetPassword = async () => {
     if (!resetConfirmUser) return;
@@ -247,6 +284,11 @@ export default function SettingsPage() {
                           }`}>
                             {u.role}
                           </span>
+                          {u.mode && (
+                            <span className="ml-1 text-[10px] text-muted-foreground">
+                              ({u.mode === "public" ? "public" : "org"})
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
@@ -276,6 +318,69 @@ export default function SettingsPage() {
                             <Trash2 className="w-3.5 h-3.5" />
                             <span className="sr-only">Delete Account</span>
                           </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Auth activity (6.1 accountability) */}
+        <Card className="bg-background/60 backdrop-blur border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+            <div>
+              <CardTitle>Auth activity</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground mt-1">
+                Login, logout, register, and password events (module 6.1).
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              onClick={() => void fetchActivity()}
+              disabled={isLoadingActivity}
+            >
+              Refresh
+            </Button>
+          </CardHeader>
+          <CardContent className="border-t border-border/50 pt-6">
+            {activityError && (
+              <p className="text-xs text-destructive mb-3">{activityError}</p>
+            )}
+            {isLoadingActivity ? (
+              <p className="text-xs text-muted-foreground">Loading activity…</p>
+            ) : activity.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No auth events yet. Sign in/out or reset a password to populate this log.
+                If you just restarted the API, log in again as User then Admin and hit Refresh.
+              </p>
+            ) : (
+              <div className="rounded-md border border-border/50 overflow-hidden max-h-72 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground border-b border-border/50 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2.5 font-medium">When</th>
+                      <th className="px-4 py-2.5 font-medium">Action</th>
+                      <th className="px-4 py-2.5 font-medium">Email</th>
+                      <th className="px-4 py-2.5 font-medium">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/30">
+                    {activity.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/20">
+                        <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
+                          {row.createdAt
+                            ? new Date(row.createdAt).toLocaleString()
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono font-medium">{row.action}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{row.email || "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground font-mono">
+                          {row.ip || "—"}
                         </td>
                       </tr>
                     ))}

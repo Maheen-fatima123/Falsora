@@ -2,6 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const { Pool } = pg;
 const connectionString = process.env.DATABASE_URL;
@@ -30,6 +33,52 @@ async function main() {
     update: {},
     create: { name: 'User' },
   });
+
+  // 1b. Seed permissions + role grants (module 6.1)
+  const permissionDefs = [
+    'cases:read',
+    'cases:write',
+    'cases:delete',
+    'cases:assign',
+    'cases:review',
+    'users:manage',
+    'analytics:read',
+    'auth:activity:read',
+  ] as const;
+
+  const permissionIds: Record<string, string> = {};
+  for (const name of permissionDefs) {
+    const p = await prisma.permission.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+    permissionIds[name] = p.id;
+  }
+
+  const grants: Record<string, string[]> = {
+    [userRole.id]: ['cases:read', 'cases:write', 'cases:delete'],
+    [reviewerRole.id]: ['cases:read', 'cases:review', 'analytics:read'],
+    [adminRole.id]: [...permissionDefs],
+  };
+
+  for (const [roleId, names] of Object.entries(grants)) {
+    for (const name of names) {
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId,
+            permissionId: permissionIds[name],
+          },
+        },
+        update: {},
+        create: {
+          roleId,
+          permissionId: permissionIds[name],
+        },
+      });
+    }
+  }
 
   // 2. Create Default Accounts for each role
   const adminPassword = await bcrypt.hash('admin123', 10);
