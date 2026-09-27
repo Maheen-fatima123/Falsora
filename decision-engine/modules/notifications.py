@@ -34,3 +34,23 @@ def format_case_verified(case_id: str, case_title: str, verdict: str) -> dict:
         "type": "CASE_VERIFIED",
         "message": f"Case '{case_title}' (#{case_id[:8]}) has been verified with verdict: {verdict}.",
     }
+
+
+def format_analysis_complete(case_id: str, case_title: str, detail: str) -> dict:
+    return {
+        "type": "ANALYSIS_COMPLETE",
+        "message": (
+            f"Verification pipeline finished for '{case_title}' (#{case_id[:8]}). "
+            f"{detail or 'Results are ready.'}"
+        ),
+    }
+
+
+def format_analysis_failed(case_id: str, case_title: str, detail: str) -> dict:
+    return {
+        "type": "ANALYSIS_FAILED",
+        "message": (
+            f"Verification pipeline failed for '{case_title}' (#{case_id[:8]}). "
+            f"{detail or 'Queued for manual review.'}"
+        ),
+    }

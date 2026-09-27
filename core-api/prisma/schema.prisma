@@ -56,6 +56,23 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+/// Login / logout / register / password events (module 6.1 accountability).
+/// Separate from case AuditLog so auth events do not need a caseId.
+model AuthActivityLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  email     String?
+  action    String   // LOGIN_SUCCESS | LOGIN_FAIL | LOGOUT | REGISTER | PASSWORD_RESET | FORGOT_PASSWORD
+  ip        String?
+  userAgent String?  @map("user_agent")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([createdAt])
+  @@map("auth_activity_logs")
+}
+
 // -----------------------------------------------------------------------------
 // Case Management & Audit Trail (6.3)
 // -----------------------------------------------------------------------------
@@ -66,7 +83,7 @@ model Case {
   createdBy   String?      @map("created_by")
   status      String       @default("Analyzing") // Analyzing, Flagged, Verified, Archived
   trustScore  Float?       @map("trust_score")   // 0.0 – 1.0 from decision-engine
-  riskLevel   String?      @map("risk_level")    // Authentic | Uncertain | High-Risk | Pending
+  riskLevel   String?      @map("risk_level")    // Low | Medium | High (legacy: Authentic | Uncertain | High-Risk | Pending)
   assignedTo  String?      @map("assigned_to")   // FK to User.id (reviewer)
   createdAt   DateTime     @default(now()) @map("created_at")
   closedAt    DateTime?    @map("closed_at")
