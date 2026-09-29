@@ -66,6 +66,7 @@ export type ForensicReportCaseData = {
   forgery?: {
     deepfakeScore?: number | null;
     tamperingScore?: number | null;
+    syntheticScore?: number | null;
     overlayUrl?: string | null;
     heatmapUrl?: string | null;
     rawHeatmapUrl?: string | null;
@@ -138,6 +139,7 @@ export function ForensicReportModal({
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
   const deepfake = caseData?.forgery?.deepfakeScore ?? null;
   const tampering = caseData?.forgery?.tamperingScore ?? null;
+  const synthetic = caseData?.forgery?.syntheticScore ?? null;
   const overlayPath =
     caseData?.forgery?.overlayUrl || caseData?.forgery?.heatmapUrl || null;
   const verdictLabel =
@@ -188,6 +190,11 @@ export function ForensicReportModal({
     if (tampering != null) {
       parts.push(
         `Tampering / splice probability: ${pctLabel(tampering)} (${scoreNote(tampering)}).`
+      );
+    }
+    if (synthetic != null) {
+      parts.push(
+        `Fully AI-generated face probability: ${pctLabel(synthetic)} (${scoreNote(synthetic)}).`
       );
     }
     if (caseData?.riskLevel) {
@@ -325,6 +332,9 @@ export function ForensicReportModal({
           label: "Tampering / splice detector",
           score: tampering,
         },
+        ...(synthetic != null
+          ? [{ label: "AI-generated face detector (ViT)", score: synthetic }]
+          : []),
       ];
       metrics.forEach(({ label, score }) => {
         const color = scoreColor(score);
@@ -641,6 +651,17 @@ export function ForensicReportModal({
                     {pctLabel(tampering)} ({scoreNote(tampering)})
                   </span>
                 </div>
+                {synthetic != null && (
+                  <div className="flex justify-between">
+                    <span>Fully AI-generated face</span>
+                    <span
+                      className="font-mono font-bold"
+                      style={{ color: scoreColor(synthetic) }}
+                    >
+                      {pctLabel(synthetic)} ({scoreNote(synthetic)})
+                    </span>
+                  </div>
+                )}
                 {caseData?.riskLevel && (
                   <div className="flex justify-between">
                     <span>Decision risk level</span>

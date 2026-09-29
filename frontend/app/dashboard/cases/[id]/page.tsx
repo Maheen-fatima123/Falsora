@@ -944,8 +944,19 @@ export default function CaseDetailPage() {
                     score={caseDetails?.forgery?.tamperingScore}
                   />
 
+                  {/* Fully AI-generated face — synthetic-face branch from ai-engine */}
+                  <DetectionMeter
+                    label="Fully AI-Generated Face"
+                    score={caseDetails?.forgery?.syntheticScore}
+                    naLabel={
+                      caseDetails?.forgery?.faceDetected === false
+                        ? "N/A (no face detected)"
+                        : "N/A"
+                    }
+                  />
+
                   {/* No audio branch in the current pipeline — static image
-                      analysis only (deepfake + tampering), so this is
+                      analysis only (deepfake + tampering + AI-generated), so this is
                       surfaced as N/A rather than a fabricated number. */}
                   <DetectionMeter
                     label="Voice Cloning / Audio Gen"

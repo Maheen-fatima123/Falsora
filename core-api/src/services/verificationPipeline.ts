@@ -172,22 +172,25 @@ async function runPipelineSteps(input: PipelineRunInput): Promise<void> {
     const fr = analysis.forgery_result;
     const deepfakeScore = fr.deepfake?.probability_fake ?? null;
     const tamperingScore = fr.tampering?.probability_tampered ?? null;
+    const syntheticScore = fr.synthetic?.probability_synthetic ?? null;
 
-    // §6.6: both branches run independently and either signal alone can
-    // indicate forgery (a face-swap with no splicing, or a spliced photo
-    // with no face) — so the score fed to the decision engine, and the
-    // label describing it, must both come from whichever branch is more
-    // suspicious, not "deepfake if present, else tampering" (see issue #19).
+    // §6.6: the branches run independently and any one signal alone can
+    // indicate forgery (a face-swap with no splicing, a spliced photo with
+    // no face, or a fully AI-generated face) — so the score fed to the
+    // decision engine, and the label describing it, must both come from
+    // whichever branch is most suspicious (see issue #19). Ties keep the
+    // earlier branch in this list.
     let manipulationType: string | null = null;
-    if (deepfakeScore !== null && tamperingScore !== null) {
-      manipulationType = deepfakeScore >= tamperingScore ? "DEEPFAKE" : "TAMPERING";
-      forgeryScore = deepfakeScore >= tamperingScore ? deepfakeScore : tamperingScore;
-    } else if (deepfakeScore !== null) {
-      manipulationType = "DEEPFAKE";
-      forgeryScore = deepfakeScore;
-    } else if (tamperingScore !== null) {
-      manipulationType = "TAMPERING";
-      forgeryScore = tamperingScore;
+    const branches: Array<[string, number | null]> = [
+      ["DEEPFAKE", deepfakeScore],
+      ["TAMPERING", tamperingScore],
+      ["AI_GENERATED", syntheticScore],
+    ];
+    for (const [label, score] of branches) {
+      if (score !== null && (manipulationType === null || score > forgeryScore)) {
+        manipulationType = label;
+        forgeryScore = score;
+      }
     }
 
     const savedForgeryResult = await prisma.forgeryResult.create({

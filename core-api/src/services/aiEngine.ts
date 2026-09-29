@@ -32,6 +32,13 @@ export interface TamperingSignal {
   model_version: string;
 }
 
+export interface SyntheticSignal {
+  probability_synthetic: number;
+  model_name: string;
+  model_version: string;
+  external_model: boolean;
+}
+
 export interface ForgeryResultPayload {
   result_id: string;
   case_id: string | null;
@@ -39,6 +46,8 @@ export interface ForgeryResultPayload {
   face_detected: boolean;
   deepfake: DeepfakeSignal | null;
   tampering: TamperingSignal | null;
+  /** Fully AI-generated face detector; absent/null on older ai-engine builds. */
+  synthetic?: SyntheticSignal | null;
   latency_ms: number;
   warnings: string[];
 }
