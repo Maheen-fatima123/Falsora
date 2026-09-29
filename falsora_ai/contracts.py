@@ -96,6 +96,7 @@ __all__ = [
     "FaceDetection",
     "DeepfakeSignal",
     "TamperingSignal",
+    "SyntheticSignal",
     "ForgeryResult",
     "Explanation",
     "FrameScore",
@@ -292,6 +293,31 @@ class TamperingSignal(_Base):
     model_version: str = Field(default="unversioned")
 
 
+class SyntheticSignal(_Base):
+    """Output of branch C: fully-synthetic (GAN/diffusion-generated) face
+    detection, via the ``dima806/deepfake_vs_real_image_detection`` ViT
+    classifier.
+
+    Neither ``DeepfakeSignal`` (face-swap) nor ``TamperingSignal``
+    (splicing/copy-move) covers a face that was never a real photo at all.
+    This branch covers that gap until the deepfake branch is retrained on a
+    fully-synthetic dataset (e.g. GenImage) — see
+    ``engine_66/synthetic/model.py`` module docstring for the accuracy
+    caveat. Optional: ``None`` when the model could not be loaded or no
+    face was detected.
+    """
+
+    probability_synthetic: float = Field(
+        ..., ge=0.0, le=1.0, description="P(face is fully AI-generated, e.g. StyleGAN/diffusion)."
+    )
+    model_name: str = Field(default="dima806/deepfake_vs_real_image_detection")
+    model_version: str = Field(default="unversioned")
+    external_model: bool = Field(
+        default=True,
+        description="True: third-party model (Hugging Face Hub), not trained in-house.",
+    )
+
+
 class ForgeryResult(_Base):
     """**Module 6.6 output.** The primary AI evidence payload.
 
@@ -322,6 +348,11 @@ class ForgeryResult(_Base):
     )
     tampering: TamperingSignal | None = Field(
         default=None, description="None when the tampering branch was skipped."
+    )
+    synthetic: SyntheticSignal | None = Field(
+        default=None,
+        description="Branch C (dima806/deepfake_vs_real_image_detection). None "
+        "when no face was detected or the model could not be loaded.",
     )
 
     latency_ms: float = Field(..., ge=0.0, description="Wall-clock inference time.")

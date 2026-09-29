@@ -51,11 +51,14 @@ from falsora_ai.contracts import (
     DeepfakeSignal,
     FaceDetection,
     ForgeryResult,
+    SyntheticSignal,
     TamperingSignal,
 )
 from falsora_ai.data.transforms import deepfake_transforms, resize_stacked_input
 from falsora_ai.engine_66.deepfake.model import DeepfakeNet
 from falsora_ai.engine_66.deepfake.train import load_checkpoint as load_deepfake_checkpoint
+from falsora_ai.engine_66.synthetic.model import MODEL_VERSION as SYNTHETIC_MODEL_VERSION
+from falsora_ai.engine_66.synthetic.model import SyntheticFaceDetector
 from falsora_ai.engine_66.tampering.ela import ela_score
 from falsora_ai.engine_66.tampering.model import TamperingCNN, build_model_input
 from falsora_ai.engine_66.tampering.residual import residual_score
@@ -83,6 +86,14 @@ class ForgeryEngine:
         tampering_model: Same idea, for ``tampering_cnn_best.pt``.
         face_detector: Anything satisfying :class:`FaceDetector`. Defaults to
             :class:`MTCNNDetector`.
+        synthetic_detector: Branch C (``dima806/deepfake_vs_real_image_detection``,
+            see ``engine_66/synthetic/model.py``). Defaults to constructing a
+            real :class:`SyntheticFaceDetector`; if it cannot be loaded
+            (``transformers`` missing, or first-run download failed),
+            construction fails soft (logged warning, branch disabled — every
+            ``ForgeryResult.synthetic`` comes back ``None``) rather than
+            taking down the whole engine. Pass ``enable_synthetic=False`` to
+            skip it outright.
     """
 
     def __init__(
@@ -92,6 +103,8 @@ class ForgeryEngine:
         deepfake_model: torch.nn.Module | None = None,
         tampering_model: torch.nn.Module | None = None,
         face_detector: FaceDetector | None = None,
+        synthetic_detector: SyntheticFaceDetector | None = None,
+        enable_synthetic: bool = True,
     ) -> None:
         self.cfg = cfg or Config()
         self.device = device or resolve_device()
@@ -102,6 +115,13 @@ class ForgeryEngine:
         self.tampering_model.eval()
 
         self.face_detector = face_detector or MTCNNDetector(self.cfg.face, device=self.device)
+
+        if synthetic_detector is not None:
+            self.synthetic_detector = synthetic_detector
+        elif enable_synthetic:
+            self.synthetic_detector = self._load_synthetic_detector()
+        else:
+            self.synthetic_detector = None
 
     def _load_deepfake_model(self) -> torch.nn.Module:
         model = DeepfakeNet(self.cfg.model)
@@ -120,6 +140,16 @@ class ForgeryEngine:
         else:
             logger.warning("No tampering checkpoint at %s — using untrained weights.", checkpoint)
         return model
+
+    def _load_synthetic_detector(self) -> SyntheticFaceDetector | None:
+        """Best-effort load of branch C. Any load failure (missing
+        ``transformers``, first-run download with no internet) disables just
+        this branch — see class docstring."""
+        try:
+            return SyntheticFaceDetector(device=self.device if self.device != "mps" else "cpu")
+        except Exception as exc:  # noqa: BLE001 — optional branch must never block engine startup
+            logger.warning("Synthetic-face branch disabled: %s", exc)
+            return None
 
     @torch.no_grad()
     def _run_deepfake(
@@ -158,6 +188,30 @@ class ForgeryEngine:
         )
         return signal, face
 
+    def _run_synthetic(self, image: np.ndarray) -> SyntheticSignal | None:
+        """Branch C (``dima806/deepfake_vs_real_image_detection``). ``None``
+        when the branch is disabled (model not loaded) — never raises.
+
+        Deliberately takes the **whole, uncropped** frame, not the tight
+        MTCNN crop the deepfake branch uses. Verified empirically: on our
+        own test images this model correctly classified a real photo when
+        given the whole frame (2.8% fake) but flipped to a false positive on
+        our tighter 0.3-margin crop_face() output (80%+ fake) — it was
+        fine-tuned on looser FFHQ-style portrait framing and is sensitive to
+        that distribution shift. Do not change this to use the deepfake
+        branch's crop without re-verifying."""
+        if self.synthetic_detector is None:
+            return None
+        try:
+            prob_synthetic = self.synthetic_detector.predict(image)
+        except Exception:  # noqa: BLE001 — supplementary signal, must not fail the request
+            logger.exception("Synthetic-face branch inference failed; omitting signal.")
+            return None
+        return SyntheticSignal(
+            probability_synthetic=prob_synthetic,
+            model_version=SYNTHETIC_MODEL_VERSION,
+        )
+
     @torch.no_grad()
     def _run_tampering(self, image: np.ndarray) -> TamperingSignal:
         """Runs on the full, uncropped image — see module docstring for why
@@ -178,18 +232,20 @@ class ForgeryEngine:
         )
 
     def analyze_image(self, image: np.ndarray, case_id: str | None = None) -> ForgeryResult:
-        """Run both branches on one RGB ``uint8`` image, assemble the fused
+        """Run all branches on one RGB ``uint8`` image, assemble the fused
         result.
 
         ``image`` is the **whole** uploaded/captured frame, not a
         pre-cropped face — face cropping for the deepfake branch happens
         internally, using the same detector and margin as M1's extraction
-        pipeline.
+        pipeline. The synthetic branch only runs when a face was detected,
+        but scores the whole frame (see ``_run_synthetic``).
         """
         t0 = time.perf_counter()
 
         deepfake_signal, face = self._run_deepfake(image)
         tampering_signal = self._run_tampering(image)
+        synthetic_signal = self._run_synthetic(image) if face is not None else None
 
         latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -200,5 +256,6 @@ class ForgeryEngine:
             face=face,
             deepfake=deepfake_signal,
             tampering=tampering_signal,
+            synthetic=synthetic_signal,
             latency_ms=latency_ms,
         )

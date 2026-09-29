@@ -9,7 +9,7 @@ trust score -> dashboard) to work end to end.
 | `frontend`        | Ujala   | 3000 | Next.js dashboard (what you open in the browser) |
 | `core-api`        | Ujala   | 4000 | Express + Prisma API, case/user management        |
 | `decision-engine` | Mehreen | 8001 | FastAPI trust-scoring service                    |
-| `ai-engine`       | Maheen  | 8000 | FastAPI wrapper around the deepfake/tampering models |
+| `ai-engine`       | Maheen  | 8000 | FastAPI wrapper around the deepfake/tampering/synthetic-face models |
 
 Run everything inside **Cursor’s built-in Terminal** panel — not the
 Windows PowerShell app. Open four tabs there:
@@ -41,6 +41,13 @@ repo root (`D:\FYP\Falsora` or wherever you cloned it).
 Without the weight files, ai-engine still starts but `/health` shows
 `models_loaded` false and analyze endpoints return `503`.
 
+- **Internet on the first ai-engine start** — the synthetic-face model
+  (`dima806/deepfake_vs_real_image_detection`, ~350 MB) is **not** a file
+  you copy from Maheen. It downloads automatically from the Hugging Face Hub
+  the first time ai-engine starts, and is cached in
+  `C:\Users\<you>\.cache\huggingface\hub` (Windows) or
+  `~/.cache/huggingface/hub` (macOS/Linux). Later starts work offline.
+
 ### One-time installs
 
 **Terminal A — ai-engine venv (repo root):**
@@ -50,7 +57,7 @@ py -3.11 -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install -U pip
 pip install "stringzilla==5.0.3"
-pip install -e ".[ml,optimize]"
+pip install -e ".[ml,optimize,synthetic]"
 pip install "grad-cam==1.5.5"
 pip install -r ai-engine\requirements.txt
 ```
@@ -58,9 +65,28 @@ pip install -r ai-engine\requirements.txt
 > If `Activate.ps1` is blocked, run once:
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
+> The `synthetic` extra installs `transformers==4.44.2` for the
+> synthetic-face branch (module 6.6c, `ForgeryResult.synthetic`), which
+> detects fully AI-generated (GAN/diffusion) faces, a case the deepfake
+> (face-swap) and tampering (splicing) branches don't cover. **Keep the exact
+> version**: newer `transformers` releases need `torch>=2.5`, and this
+> project pins `torch<2.6`. See `falsora_ai/engine_66/synthetic/model.py` for
+> the model's accuracy scope note.
+
 > Pin `stringzilla==5.0.3` (has a Windows wheel; newer versions need MSVC
 > Build Tools). Pin `grad-cam==1.5.5` (`1.5.7` ships an empty package on
 > Windows and breaks with `No module named 'pytorch_grad_cam'`).
+
+**Already had a working venv before this update?** You don't need to
+recreate it. From the repo root, after `git pull`:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+pip install -e ".[ml,optimize,synthetic]"
+```
+
+Then restart ai-engine (it downloads the synthetic-face model on that first
+start, see Prerequisites).
 
 **Terminal B — decision-engine venv:**
 
@@ -134,7 +160,22 @@ uvicorn ai-engine.main:app --port 8000 --reload
 ```
 
 Check: http://localhost:8000/health  
-Expect `"models_loaded":{"static":true,"frame":true}` when weights are present.
+Expect `"models_loaded":{"static":true,"frame":true,"synthetic":true}` when
+weights are present.
+
+The **first** start after install takes a few extra minutes while the
+synthetic-face model downloads (~350 MB). Wait for
+`Application startup complete.` before starting the other services.
+`"synthetic":false` means that model didn't load. See Troubleshooting.
+
+To see the synthetic-face score directly (PowerShell, any photo with a face):
+
+```powershell
+curl.exe -X POST http://localhost:8000/ai/forgery/analyze -F "file=@C:\path\to\photo.jpg" -F "explain=false"
+```
+
+Look for `"synthetic": {"probability_synthetic": ...}` in the response.
+Higher values mean the face is more likely fully AI-generated.
 
 ### 2. decision-engine (port 8001) — Cursor terminal tab 2
 
@@ -178,6 +219,11 @@ upload an image on the case creation page. Within ~5 seconds you should
 see a real per-image AI Detection Breakdown (not identical numbers on
 every case) — that confirms all four services are talking to each other.
 
+> The synthetic-face score is returned by ai-engine (see the `curl.exe`
+> check above) but is **not yet** shown on the dashboard or used in the
+> trust score. The breakdown still shows the deepfake and tampering
+> branches only.
+
 ---
 
 ## macOS / Linux (same order)
@@ -185,7 +231,7 @@ every case) — that confirms all four services are talking to each other.
 ```bash
 # 1. ai-engine — from repo root
 python3.11 -m venv venv && source venv/bin/activate
-pip install -e ".[ml,optimize]" && pip install -r ai-engine/requirements.txt
+pip install -e ".[ml,optimize,synthetic]" && pip install -r ai-engine/requirements.txt
 uvicorn ai-engine.main:app --port 8000 --reload
 
 # 2. decision-engine
@@ -241,4 +287,21 @@ bun install && bun run dev
 - **`No module named 'pytorch_grad_cam'`** — install `grad-cam==1.5.5`
   (not 1.5.7).
 - **`Failed building wheel for stringzilla` / MSVC required** — install
-  `stringzilla==5.0.3` before `pip install -e ".[ml,optimize]"`.
+  `stringzilla==5.0.3` before `pip install -e ".[ml,optimize,synthetic]"`.
+- **ai-engine `/health` shows `"synthetic": false`, or its terminal logs
+  `Synthetic-face branch disabled: ...`** — the rest of ai-engine still
+  works, only the synthetic-face score is missing. The message after
+  `disabled:` says why:
+  - `SyntheticFaceDetector requires transformers` → run
+    `pip install "transformers==4.44.2"` in the ai-engine venv, then
+    restart ai-engine.
+  - `name 'torch' is not defined`, often after log lines like
+    `Disabling PyTorch because PyTorch >= 2.5 is required` → a newer
+    `transformers` got installed (e.g. plain `pip install transformers`).
+    Fix: `pip install "transformers==4.44.2"`, then restart ai-engine. Do
+    **not** upgrade torch to fix this, because that breaks face detection.
+  - a connection / `huggingface.co` / `OSError` message → the first-run
+    download failed. Restart ai-engine once you have internet.
+- **Windows warning `huggingface_hub cache-system uses symlinks ...`** —
+  harmless, the model still loads. To hide it, run
+  `setx HF_HUB_DISABLE_SYMLINKS_WARNING 1` once and open a new terminal.
