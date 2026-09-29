@@ -70,6 +70,16 @@ dev = [
 demo = [
     "flask>=3.0",
 ]
+# Branch C (engine_66/synthetic/) — fully-synthetic-face detector using the
+# dima806/deepfake_vs_real_image_detection ViT from the Hugging Face Hub.
+# ForgeryEngine degrades gracefully (synthetic=None) when this extra isn't
+# installed, see engine_66/engine.py.
+synthetic = [
+    # Pinned: transformers>=4.46 requires torch>=2.5, and the [ml] extra
+    # above pins torch<2.6 for facenet-pytorch compatibility — 4.44.2 is the
+    # last release that works with torch 2.2-2.5.
+    "transformers==4.44.2",
+]
 
 [tool.setuptools.packages.find]
 include = ["falsora_ai*"]

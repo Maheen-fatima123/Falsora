@@ -122,12 +122,15 @@ def _engine_error_status(err: EngineError) -> int:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    static = _predictors.get("static")
     return {
         "status": "ok",
         "service": "ai-engine",
         "models_loaded": {
-            "static": "static" in _predictors,
+            "static": static is not None,
             "frame": "frame" in _predictors,
+            "synthetic": static is not None
+            and static.forgery_engine.synthetic_detector is not None,
         },
     }
 
