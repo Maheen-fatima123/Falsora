@@ -387,6 +387,7 @@ router.get("/:id", async (req: AuthenticatedRequest, res: Response) => {
     const rawOutput = (forgeryResult?.rawOutputJson as any) || null;
     const deepfakeScore = rawOutput?.deepfake?.probability_fake ?? null;
     const tamperingScore = rawOutput?.tampering?.probability_tampered ?? null;
+    const syntheticScore = rawOutput?.synthetic?.probability_synthetic ?? null;
     const visual = forgeryResult?.evidenceVisuals?.[0];
     const meta = parseExplanationMeta(visual?.explanationText);
     const overlayStored =
@@ -494,6 +495,7 @@ router.get("/:id", async (req: AuthenticatedRequest, res: Response) => {
               manipulationType: forgeryResult.manipulationType,
               deepfakeScore,
               tamperingScore,
+              syntheticScore,
               heatmapUrl: overlayUrl,
               overlayUrl,
               rawHeatmapUrl,

@@ -219,10 +219,13 @@ upload an image on the case creation page. Within ~5 seconds you should
 see a real per-image AI Detection Breakdown (not identical numbers on
 every case) — that confirms all four services are talking to each other.
 
-> The synthetic-face score is returned by ai-engine (see the `curl.exe`
-> check above) but is **not yet** shown on the dashboard or used in the
-> trust score. The breakdown still shows the deepfake and tampering
-> branches only.
+> The AI Detection Breakdown shows three real scores: **Deepfake Face
+> Swap**, **Frame Splicing & Editing** and **Fully AI-Generated Face**. The
+> highest of the three is what feeds the trust score, so a fully
+> AI-generated face gets **Flagged** even when the other two are low. The
+> forensic report (View / Export Report) lists all three.
+> "Fully AI-Generated Face" shows `N/A (no face detected)` for images
+> without a face, because that model only runs when a face is found.
 
 ---
 
