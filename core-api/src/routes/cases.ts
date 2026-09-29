@@ -497,6 +497,17 @@ router.get("/:id", async (req: AuthenticatedRequest, res: Response) => {
               tamperingScore,
               syntheticScore,
               elaUrl: typeof rawOutput?.ela_url === "string" ? rawOutput.ela_url : null,
+              // Absolute pixel coords of the analysed (= displayed) image, incl. crop margin.
+              faceBox:
+                rawOutput?.face?.box &&
+                ["x1", "y1", "x2", "y2"].every((k) => typeof rawOutput.face.box[k] === "number")
+                  ? {
+                      x1: rawOutput.face.box.x1,
+                      y1: rawOutput.face.box.y1,
+                      x2: rawOutput.face.box.x2,
+                      y2: rawOutput.face.box.y2,
+                    }
+                  : null,
               heatmapUrl: overlayUrl,
               overlayUrl,
               rawHeatmapUrl,
