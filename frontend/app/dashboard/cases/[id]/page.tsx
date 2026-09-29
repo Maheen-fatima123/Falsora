@@ -954,15 +954,6 @@ export default function CaseDetailPage() {
                         : "N/A"
                     }
                   />
-
-                  {/* No audio branch in the current pipeline — static image
-                      analysis only (deepfake + tampering + AI-generated), so this is
-                      surfaced as N/A rather than a fabricated number. */}
-                  <DetectionMeter
-                    label="Voice Cloning / Audio Gen"
-                    score={null}
-                    naLabel="N/A (image-only analysis)"
-                  />
                 </>
               )}
             </CardContent>

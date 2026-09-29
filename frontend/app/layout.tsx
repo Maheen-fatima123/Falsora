@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "Titli Forensics Platform",
+  title: "FALSORA Forensics Platform",
   description: "Advanced Deepfake Detection & Media Forensics",
 };
 

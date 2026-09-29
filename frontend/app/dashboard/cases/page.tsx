@@ -69,7 +69,15 @@ export default function CasesPage() {
       const res = await fetchApi("http://localhost:4000/api/cases");
       const resData = await res.json();
       if (resData.success && Array.isArray(resData.data)) {
-        setCasesList(resData.data);
+        // Keep first occurrence per id (upload+poll can race-append duplicates).
+        const seen = new Set<string>();
+        setCasesList(
+          resData.data.filter((c: { id?: string }) => {
+            if (!c?.id || seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          })
+        );
       }
     } catch (err) {
       console.error("Error fetching cases:", err);
@@ -93,27 +101,32 @@ export default function CasesPage() {
   }, [hasAnalyzing, fetchCases]);
 
   const handleCaseCreated = (newCase: any) => {
-    setCasesList((prev) => [newCase, ...prev]);
+    if (!newCase?.id) return;
+    setCasesList((prev) => {
+      if (prev.some((c) => c.id === newCase.id)) return prev;
+      return [newCase, ...prev];
+    });
   };
 
-  const filteredCases = useMemo(
-    () =>
-      casesList.filter((c) => {
-        const matchesSearch = (c.subject || c.id || "")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase());
-        const matchesStatus =
-          statusFilter === "everything" ||
-          (statusFilter === "all" && (c.status || "") !== "Archived") ||
-          (statusFilter !== "all" &&
-            statusFilter !== "everything" &&
-            ((c.status || "").toLowerCase() === statusFilter.toLowerCase() ||
-              (statusFilter === "High-Risk" &&
-                (c.riskLevel === "High-Risk" || c.riskLevel === "High"))));
-        return matchesSearch && matchesStatus;
-      }),
-    [casesList, searchQuery, statusFilter]
-  );
+  const filteredCases = useMemo(() => {
+    const seen = new Set<string>();
+    return casesList.filter((c) => {
+      if (!c?.id || seen.has(c.id)) return false;
+      seen.add(c.id);
+      const matchesSearch = (c.subject || c.id || "")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+      const matchesStatus =
+        statusFilter === "everything" ||
+        (statusFilter === "all" && (c.status || "") !== "Archived") ||
+        (statusFilter !== "all" &&
+          statusFilter !== "everything" &&
+          ((c.status || "").toLowerCase() === statusFilter.toLowerCase() ||
+            (statusFilter === "High-Risk" &&
+              (c.riskLevel === "High-Risk" || c.riskLevel === "High"))));
+      return matchesSearch && matchesStatus;
+    });
+  }, [casesList, searchQuery, statusFilter]);
 
   const selectableIds = useMemo(
     () => filteredCases.map((c) => c.id as string),
