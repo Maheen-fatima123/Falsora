@@ -208,6 +208,7 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-6">
+        {/* Profile Configuration — hidden for now
         <Card className="bg-background/60 backdrop-blur border-border/50">
           <CardHeader>
             <CardTitle>Profile Configuration</CardTitle>
@@ -233,6 +234,7 @@ export default function SettingsPage() {
             <Button>Save Changes</Button>
           </CardFooter>
         </Card>
+        */}
 
         {/* Provisioned Accounts */}
         <Card className="bg-background/60 backdrop-blur border-border/50">
