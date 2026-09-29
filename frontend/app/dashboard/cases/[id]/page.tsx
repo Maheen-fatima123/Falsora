@@ -90,6 +90,8 @@ export default function CaseDetailPage() {
   const [awaitingResults, setAwaitingResults] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [activeViewMode, setActiveViewMode] = useState<"rgb" | "ela" | "bbox" | "gradcam" | "heatmap">("rgb");
+  // Natural pixel size of the case image — the face box is in these coordinates.
+  const [mediaSize, setMediaSize] = useState<{ w: number; h: number } | null>(null);
   const autoOpenedGradcam = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(142);
@@ -650,6 +652,12 @@ export default function CaseDetailPage() {
                   <>
                     <img
                       src={src}
+                      onLoad={(e) => {
+                        const t = e.currentTarget;
+                        if (src === mediaBase && t.naturalWidth && t.naturalHeight) {
+                          setMediaSize({ w: t.naturalWidth, h: t.naturalHeight });
+                        }
+                      }}
                       className={cn(
                         "absolute inset-0 w-full h-full object-contain z-10 transition-all duration-300",
                         analysisPending && "opacity-60 blur-[1px]",
@@ -688,35 +696,65 @@ export default function CaseDetailPage() {
                 );
               })()}
 
-              {/* Face box overlay — ABOVE image; uses real deepfake score when present */}
-              {activeViewMode === "bbox" && caseDetails?.mediaUrl && !analysisPending && (
-                <>
-                  {caseDetails?.forgery?.faceDetected === false ? (
+              {/* Face box overlay — real detected box from ai-engine, drawn in image
+                  pixel coordinates. The SVG's "meet" scaling matches the img's
+                  object-contain, so the box stays on the face at any viewer size. */}
+              {activeViewMode === "bbox" && caseDetails?.mediaUrl && !analysisPending && (() => {
+                const box = caseDetails?.forgery?.faceBox as
+                  | { x1: number; y1: number; x2: number; y2: number }
+                  | null
+                  | undefined;
+                if (caseDetails?.forgery?.faceDetected === false || !box) {
+                  return (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/45 p-4">
                       <p className="text-xs text-muted-foreground font-mono text-center max-w-xs rounded-lg border border-border/60 bg-background/80 px-3 py-2">
-                        No face detected for this image — face-box view unavailable.
+                        {caseDetails?.forgery?.faceDetected === false
+                          ? "No face detected for this image — face-box view unavailable."
+                          : "Face position not available for this case."}
                       </p>
                     </div>
-                  ) : (
-                    <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
-                      <div className="relative w-[32%] min-w-[120px] max-w-[220px] aspect-[3/4] border-2 border-emerald-400/90 rounded-sm bg-emerald-500/10 shadow-[0_0_18px_rgba(52,211,153,0.35)] flex flex-col justify-between p-1.5">
-                        <span className="text-[10px] font-mono font-bold bg-emerald-500 text-black px-1.5 py-0.5 rounded-xs self-start">
-                          Face
-                          {typeof caseDetails?.forgery?.deepfakeScore === "number"
-                            ? ` · ${Math.round(caseDetails.forgery.deepfakeScore * 1000) / 10}% fake`
-                            : caseDetails?.forgery?.faceDetected
-                              ? " · detected"
-                              : " · region"}
-                        </span>
-                        <div className="flex justify-between text-[9px] text-emerald-200 font-mono">
-                          <span>{caseDetails?.resolution || "—"}</span>
-                          <span>bbox</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+                  );
+                }
+                if (!mediaSize) return null;
+                const label =
+                  typeof caseDetails?.forgery?.deepfakeScore === "number"
+                    ? `Face · ${Math.round(caseDetails.forgery.deepfakeScore * 1000) / 10}% fake`
+                    : "Face";
+                const fs = Math.max(mediaSize.w, mediaSize.h) * 0.024;
+                const labelH = fs * 1.5;
+                const labelW = label.length * fs * 0.62 + fs;
+                const labelY = box.y1 - labelH >= 0 ? box.y1 - labelH : box.y1;
+                const labelX = Math.max(0, Math.min(box.x1, mediaSize.w - labelW));
+                return (
+                  <svg
+                    className="absolute inset-0 z-20 w-full h-full pointer-events-none"
+                    viewBox={`0 0 ${mediaSize.w} ${mediaSize.h}`}
+                    preserveAspectRatio="xMidYMid meet"
+                  >
+                    <rect
+                      x={box.x1}
+                      y={box.y1}
+                      width={box.x2 - box.x1}
+                      height={box.y2 - box.y1}
+                      fill="rgba(16,185,129,0.10)"
+                      stroke="rgb(52,211,153)"
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <rect x={labelX} y={labelY} width={labelW} height={labelH} fill="rgb(16,185,129)" />
+                    <text
+                      x={labelX + fs * 0.5}
+                      y={labelY + labelH * 0.72}
+                      fontSize={fs}
+                      fontFamily="ui-monospace, monospace"
+                      fontWeight="bold"
+                      fill="black"
+                    >
+                      {label}
+                    </text>
+                  </svg>
+                );
+              })()}
 
               {activeViewMode === "gradcam" &&
                 !caseDetails?.forgery?.overlayUrl &&
