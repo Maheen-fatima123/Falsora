@@ -159,3 +159,21 @@ class TestRealCheckpoint:
         explanation = real_engine.explain(_rgb_image(size=256), result)
         assert explanation is not None
         assert Path(explanation.overlay_path).exists()
+
+
+class TestElaEvidence:
+    def test_writes_the_same_ela_map_the_tampering_model_sees(self, tmp_path: Path) -> None:
+        import cv2
+
+        from falsora_ai.engine_66.tampering.ela import compute_ela_map
+        from falsora_ai.engine_67.overlay import save_ela_evidence
+
+        cfg = _tiny_cfg(tmp_path)
+        image = _rgb_image(size=128)
+
+        path = save_ela_evidence(cfg, "result-123", image)
+
+        assert Path(path) == cfg.paths.gradcam / "result-123_ela.png"
+        saved = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        assert saved.shape == image.shape[:2]
+        np.testing.assert_array_equal(saved, compute_ela_map(image, cfg.tampering))

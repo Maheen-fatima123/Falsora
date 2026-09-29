@@ -12,6 +12,7 @@ import { autoAssignReviewer } from "../utils/autoAssign";
 import { notifyCaseEvent } from "../utils/notify";
 import { verdictFromRisk, writeCaseVerdict } from "../utils/verdicts";
 import {
+  publishEvidenceFile,
   publishExplanationArtifacts,
 } from "../utils/evidenceAssets";
 import { analyzeForgery } from "./aiEngine";
@@ -193,6 +194,9 @@ async function runPipelineSteps(input: PipelineRunInput): Promise<void> {
       }
     }
 
+    // Stored alongside the raw AI output (no schema change needed).
+    const elaUrl = publishEvidenceFile(analysis.ela_path, "ela", caseId);
+
     const savedForgeryResult = await prisma.forgeryResult.create({
       data: {
         mediaId: mediaAssetId,
@@ -202,7 +206,7 @@ async function runPipelineSteps(input: PipelineRunInput): Promise<void> {
           "falsora_ai",
         confidenceScore: forgeryScore,
         manipulationType,
-        rawOutputJson: fr as any,
+        rawOutputJson: (elaUrl ? { ...fr, ela_url: elaUrl } : fr) as any,
       },
     });
 

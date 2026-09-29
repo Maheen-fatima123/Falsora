@@ -549,10 +549,12 @@ export default function CaseDetailPage() {
                     {
                       id: "ela" as const,
                       label: "ELA",
-                      title: "Error Level Analysis",
+                      title: caseDetails?.forgery?.elaUrl
+                        ? "Error Level Analysis (JPEG re-save difference)"
+                        : "ELA map not available for this case",
                       icon: Flame,
                       iconClass: "text-purple-400",
-                      enabled: true,
+                      enabled: !!caseDetails?.forgery?.elaUrl,
                     },
                     {
                       id: "bbox" as const,
@@ -629,13 +631,18 @@ export default function CaseDetailPage() {
                 const heat = caseDetails?.forgery?.rawHeatmapUrl
                   ? `http://localhost:4000${caseDetails.forgery.rawHeatmapUrl}`
                   : null;
+                const ela = caseDetails?.forgery?.elaUrl
+                  ? `http://localhost:4000${caseDetails.forgery.elaUrl}`
+                  : null;
                 // Heatmap prefers raw CAM map; if missing, reuse overlay with heatmap styling below
                 const src =
                   activeViewMode === "gradcam"
                     ? overlay || heat || mediaBase
                     : activeViewMode === "heatmap"
                       ? heat || overlay || mediaBase
-                      : mediaBase;
+                      : activeViewMode === "ela"
+                        ? ela || mediaBase
+                        : mediaBase;
                 if (!src) return null;
                 const heatmapDerived =
                   activeViewMode === "heatmap" && !heat && !!overlay;
@@ -646,8 +653,6 @@ export default function CaseDetailPage() {
                       className={cn(
                         "absolute inset-0 w-full h-full object-contain z-10 transition-all duration-300",
                         analysisPending && "opacity-60 blur-[1px]",
-                        activeViewMode === "ela" &&
-                          "contrast-[1.85] saturate-[0.35] brightness-110 hue-rotate-15",
                         // Distinct from Grad-CAM when we only have the overlay PNG
                         heatmapDerived &&
                           "contrast-[1.6] saturate-[2.2] brightness-90 hue-rotate-[320deg]",
@@ -663,7 +668,7 @@ export default function CaseDetailPage() {
                               ? "Raw Grad-CAM heatmap"
                               : "Heatmap view derived from Grad-CAM"
                             : activeViewMode === "ela"
-                              ? "Error level analysis preview"
+                              ? "Error level analysis map"
                               : "Case Evidence"
                       }
                     />
@@ -674,20 +679,14 @@ export default function CaseDetailPage() {
                           : "Heatmap view · derived from overlay"}
                       </div>
                     )}
+                    {activeViewMode === "ela" && ela && !analysisPending && (
+                      <div className="absolute top-2 left-2 z-20 rounded border border-purple-400/40 bg-black/70 px-2 py-1 text-[10px] font-mono text-purple-300">
+                        ELA · JPEG q90 re-save difference (15× amplified)
+                      </div>
+                    )}
                   </>
                 );
               })()}
-
-              {/* ELA tint overlay — must sit ABOVE the image (was z-0 under img before) */}
-              {activeViewMode === "ela" && caseDetails?.mediaUrl && !analysisPending && (
-                <div
-                  className="absolute inset-0 z-20 pointer-events-none mix-blend-screen opacity-70"
-                  style={{
-                    background:
-                      "radial-gradient(circle at 45% 40%, rgba(168,85,247,0.55), rgba(239,68,68,0.35), transparent 72%)",
-                  }}
-                />
-              )}
 
               {/* Face box overlay — ABOVE image; uses real deepfake score when present */}
               {activeViewMode === "bbox" && caseDetails?.mediaUrl && !analysisPending && (

@@ -27,7 +27,13 @@ import numpy as np
 from falsora_ai.config import Config
 from falsora_ai.contracts import BoundingBox
 
-__all__ = ["render_overlay", "render_heatmap", "salient_regions", "save_evidence"]
+__all__ = [
+    "render_overlay",
+    "render_heatmap",
+    "salient_regions",
+    "save_evidence",
+    "save_ela_evidence",
+]
 
 
 def render_overlay(crop_rgb_float01: np.ndarray, cam: np.ndarray) -> np.ndarray:
@@ -147,3 +153,23 @@ def save_evidence(
     cv2.imwrite(str(heatmap_path), heatmap_bgr)
 
     return str(overlay_path), str(heatmap_path)
+
+
+def save_ela_evidence(cfg: Config, result_id: object, image_rgb: np.ndarray) -> str:
+    """Write the whole-image ELA map under ``cfg.paths.gradcam`` as a
+    greyscale PNG named by ``result_id``; returns its path.
+
+    Uses the tampering branch's own ``compute_ela_map`` with the same
+    ``cfg.tampering`` quality/gain, so the picture a reviewer sees is exactly
+    the ELA channel the tampering model was given. Brighter = more
+    compression-history discontinuity.
+    """
+    import cv2  # local: keeps this module importable without OpenCV
+
+    from falsora_ai.engine_66.tampering.ela import compute_ela_map
+
+    out_dir = cfg.paths.gradcam
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ela_path = out_dir / f"{result_id}_ela.png"
+    cv2.imwrite(str(ela_path), compute_ela_map(image_rgb, cfg.tampering))
+    return str(ela_path)

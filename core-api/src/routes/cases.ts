@@ -496,6 +496,7 @@ router.get("/:id", async (req: AuthenticatedRequest, res: Response) => {
               deepfakeScore,
               tamperingScore,
               syntheticScore,
+              elaUrl: typeof rawOutput?.ela_url === "string" ? rawOutput.ela_url : null,
               heatmapUrl: overlayUrl,
               overlayUrl,
               rawHeatmapUrl,
