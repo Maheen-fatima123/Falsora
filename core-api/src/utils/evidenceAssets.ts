@@ -16,7 +16,7 @@ function ensureEvidenceDir(): void {
  */
 export function publishEvidenceFile(
   sourcePath: string | null | undefined,
-  kind: "overlay" | "heatmap",
+  kind: "overlay" | "heatmap" | "ela",
   caseId?: string
 ): string | null {
   if (!sourcePath) return null;

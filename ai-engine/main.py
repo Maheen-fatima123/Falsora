@@ -37,8 +37,9 @@ from pydantic import BaseModel
 
 from falsora_ai.common.logging import get_logger
 from falsora_ai.contracts import EngineError
+from falsora_ai.engine_67.overlay import save_ela_evidence
 from falsora_ai.service.predict_frame import FramePredictor
-from falsora_ai.service.predict_static import StaticPredictor
+from falsora_ai.service.predict_static import StaticPredictor, decode_image
 
 logger = get_logger(__name__)
 
@@ -153,9 +154,19 @@ async def analyze_forgery(
     if isinstance(result, EngineError):
         raise HTTPException(status_code=_engine_error_status(result), detail=result.model_dump(mode="json"))
 
+    # ELA is visual evidence like Grad-CAM, but for the whole image — it
+    # exists even when no face was found. Never fails the request.
+    ela_path: str | None = None
+    if explain:
+        try:
+            ela_path = save_ela_evidence(predictor.cfg, result.result_id, decode_image(image_bytes))
+        except Exception:  # noqa: BLE001
+            logger.exception("ELA evidence failed for result_id=%s", result.result_id)
+
     return {
         "forgery_result": result.model_dump(mode="json"),
         "explanation": explanation.model_dump(mode="json") if explanation else None,
+        "ela_path": ela_path,
     }
 
 

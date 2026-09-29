@@ -64,6 +64,8 @@ export interface ExplanationPayload {
 export interface ForgeryAnalysis {
   forgery_result: ForgeryResultPayload;
   explanation: ExplanationPayload | null;
+  /** Whole-image ELA map PNG on the ai-engine's disk; absent on older builds. */
+  ela_path?: string | null;
 }
 
 /**
